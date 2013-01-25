@@ -9,6 +9,7 @@
 
     <properties>
         <osgi.version>4.3.0</osgi.version>
+        <jahia.site.path>${project.build.outputDirectory}/site</jahia.site.path>
     </properties>
 
     <scm>
@@ -58,7 +59,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <instructions>
-                        <Bundle-SymbolicName>${pom.artifactId}</Bundle-SymbolicName>
+                        <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
                         <Embed-Transitive>true</Embed-Transitive>
                     </instructions>
                 </configuration>
