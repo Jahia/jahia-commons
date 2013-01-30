@@ -342,9 +342,21 @@ public class Version implements Comparable<Version> {
         
         if (obj != null && this.getClass() == obj.getClass()) {
             Version rightVersion = (Version) obj;
-            List<Integer> rightOrderedVersionNumbers = rightVersion.getOrderedVersionNumbers();
-            if (orderedVersionNumbers.size() != rightOrderedVersionNumbers.size()) {
-                return false;
+            // first we create copies of the version number lists to be able to normalize them if necessary.
+            List<Integer> normalizedOrderedVersionNumbers = new ArrayList<Integer>(orderedVersionNumbers);
+            List<Integer> normalizedRightOrderedVersionNumbers = new ArrayList<Integer>(rightVersion.getOrderedVersionNumbers());
+            // version numbers might not have same length, we must first normalize the length to compare them since
+            // 1.5 is equal to 1.5.0.0
+            if (normalizedOrderedVersionNumbers.size() < normalizedRightOrderedVersionNumbers.size()) {
+                int sizeDiff = normalizedRightOrderedVersionNumbers.size() - normalizedOrderedVersionNumbers.size();
+                for (int i=0; i < sizeDiff; i++) {
+                    normalizedOrderedVersionNumbers.add(0);
+                }
+            } else if (normalizedOrderedVersionNumbers.size() > normalizedRightOrderedVersionNumbers.size()) {
+                int sizeDiff = normalizedOrderedVersionNumbers.size() - normalizedRightOrderedVersionNumbers.size();
+                for (int i=0; i < sizeDiff; i++) {
+                    normalizedRightOrderedVersionNumbers.add(0);
+                }
             }
             if (betaNumber != rightVersion.getBetaNumber()) {
                 return false;
@@ -352,9 +364,9 @@ public class Version implements Comparable<Version> {
             if (releaseCandidateNumber != rightVersion.getReleaseCandidateNumber()) {
                 return false;
             }
-            for (int i=0; i < orderedVersionNumbers.size(); i++) {
-                Integer leftVersionNumber = orderedVersionNumbers.get(i);
-                Integer rightVersionNumber = rightOrderedVersionNumbers.get(i);
+            for (int i=0; i < normalizedOrderedVersionNumbers.size(); i++) {
+                Integer leftVersionNumber = normalizedOrderedVersionNumbers.get(i);
+                Integer rightVersionNumber = normalizedRightOrderedVersionNumbers.get(i);
                 if (leftVersionNumber.intValue() != rightVersionNumber.intValue()) {
                     return false;
                 }

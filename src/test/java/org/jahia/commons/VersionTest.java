@@ -134,5 +134,11 @@ public class VersionTest {
         Assert.assertEquals("Test version should be equal to lower version", 0, lowerVersion.compareTo(testVersion));
         Assert.assertEquals("Test version should be lower than higher version", 1, higherVersion.compareTo(testVersion));
 
+        testVersion = new Version("1.5.0.0");
+        Assert.assertEquals("Test version should be equal to lower version", true, lowerVersion.equals(testVersion));
+        Assert.assertEquals("Lower version should be equal to test version", true, testVersion.equals(lowerVersion));
+        Assert.assertEquals("Test version should be equal to lower version", 0, lowerVersion.compareTo(testVersion));
+        Assert.assertEquals("Lower version should be equal to test version", 0, testVersion.compareTo(lowerVersion));
+
     }
 }
