@@ -171,5 +171,19 @@ public class VersionTest {
         Assert.assertEquals("Version " + version + " does not match", new Version("1.7R2"), version);
         version = Version.fromMavenFileName("guava-r06");
         Assert.assertTrue("Version " + version + " is not parseable by this implementation", version == null);
+        version = Version.fromMavenFileName("jakarta-slide-webdavlib-2.2pre1-SLIDE-386476");
+        Assert.assertEquals("Version " + version + " does not match", new Version("2.2pre1-SLIDE-386476"), version);
+
+        // Eclise version numbers do not work correctly yet
+        /*
+        version = Version.fromMavenFileName("org.eclipse.equinox.p2.publisher_1.1.2.v20100824-2220");
+        Assert.assertEquals("Version " + version + " does not match", new Version("1.1.2.v20100824-2220"), version);
+        version = Version.fromMavenFileName("overlay.com.android.ide.eclipse.adt.overlay_20.0.0.v201206242043-391819");
+        Assert.assertEquals("Version " + version + " does not match", new Version("20.0.0.v201206242043-391819"), version);
+        version = Version.fromMavenFileName("org.eclipse.update.configurator.manipulator_3.1.0.v201008301800_r35");
+        Assert.assertEquals("Version " + version + " does not match", new Version("3.1.0.v201008301800_r35"), version);
+        version = Version.fromMavenFileName("org.eclipse.equinox.frameworkadmin.equinox.source_1.0.101.R35x_v20091214");
+        Assert.assertEquals("Version " + version + " does not match", new Version("1.0.101.R35x_v20091214"), version);
+        */
     }
 }
