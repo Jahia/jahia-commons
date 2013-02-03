@@ -173,6 +173,8 @@ public class VersionTest {
         Assert.assertTrue("Version " + version + " is not parseable by this implementation", version == null);
         version = Version.fromMavenFileName("jakarta-slide-webdavlib-2.2pre1-SLIDE-386476");
         Assert.assertEquals("Version " + version + " does not match", new Version("2.2pre1-SLIDE-386476"), version);
+        version = Version.fromMavenFileName("geocoder-java-0.9-jdk5");
+        Assert.assertEquals("Version " + version + " does not match", new Version("0.9-jdk5"), version);
 
         // Eclise version numbers do not work correctly yet
         /*
