@@ -103,18 +103,24 @@ public class VersionTest {
         Assert.assertEquals("Minor version should be 6", 6, version.getOrderedVersionNumbers().get(1).intValue());
         Assert.assertTrue("Version " + version + " should be identified as final", version.isFinal());
         Assert.assertEquals("Version " + version + " qualifiers are invalid", version.getQualifiers(), qualifiers);
-        exception = false;
-        try {
-            version = new Version("1.6.0u24-b07-334-10M3326");
-        } catch (NumberFormatException nfe) {
-            exception = true;
-        }
-        Assert.assertTrue("Version " + version + " is invalid but not detected as such", exception);
+        version = new Version("r06");
+        qualifiers.clear();
+        qualifiers.add("r06");
+        Assert.assertEquals("Version " + version + " should be only with classifier r06", qualifiers, version.getQualifiers());
+        version = new Version("1.6.0u24-b07-334-10M3326");
+        Assert.assertEquals("Version " + version + " toString does not match 1.6.0u24-b07-334-10M3326 ", "1.6.0u24-b07-334-10M3326", version.toString());
         version = new Version("6.5-BETA2");
         Assert.assertTrue("Version " + version + " should be identified as final", version.isFinal());
         qualifiers.clear();
         qualifiers.add("BETA2");
         Assert.assertEquals("Version " + version + " qualifier should be BETA2", version.getQualifiers(), qualifiers);
+
+        qualifiers.clear();
+        version = new Version("3.4.0.GA.");
+        Assert.assertEquals("Version " + version + " part suffix should be .GA.", ".GA.", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 3.4.0", "3.4.0", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+
     }
 
     @Test
@@ -140,5 +146,30 @@ public class VersionTest {
         Assert.assertEquals("Test version should be equal to lower version", 0, lowerVersion.compareTo(testVersion));
         Assert.assertEquals("Lower version should be equal to test version", 0, testVersion.compareTo(lowerVersion));
 
+    }
+
+    @Test
+    public void testFileNameParsing() {
+        Version version = Version.fromMavenFileName("geronimo-j2ee-connector_1.5_spec-2.0.0");
+        Assert.assertEquals("Version " + version + " does not match", new Version("2.0.0"), version);
+        version = Version.fromMavenFileName("abdera-i18n-0.4.0-incubating");
+        Assert.assertEquals("Version " + version + " does not match", new Version("0.4.0-incubating"), version);
+        Assert.assertEquals("Version " + version + " base version does not match", "0.4.0", version.getBaseVersionString());
+        version = Version.fromMavenFileName("deployers-4.0-20130129.191029-6");
+        Assert.assertEquals("Version " + version + " does not match", new Version("4.0-20130129.191029-6"), version);
+        version = Version.fromMavenFileName("eclipse-core-runtime-20070801");
+        Assert.assertEquals("Version " + version + " does not match", new Version("20070801"), version);
+        version = Version.fromMavenFileName("geronimo-stax-api_1.0_spec-1.0.1");
+        Assert.assertEquals("Version " + version + " does not match", new Version("1.0.1"), version);
+        version = Version.fromMavenFileName("jackrabbit-api-2.4.2-rev1346887-patch9");
+        Assert.assertEquals("Version " + version + " does not match", new Version("2.4.2-rev1346887-patch9"), version);
+        version = Version.fromMavenFileName("jahia-api-6.7.0.0-SNAPSHOT");
+        Assert.assertEquals("Version " + version + " does not match", new Version("6.7.0.0-SNAPSHOT"), version);
+        version = Version.fromMavenFileName("jodconverter-core-3.0-beta-4-jahia3");
+        Assert.assertEquals("Version " + version + " does not match", new Version("3.0-beta-4-jahia3"), version);
+        version = Version.fromMavenFileName("js-1.7R2");
+        Assert.assertEquals("Version " + version + " does not match", new Version("1.7R2"), version);
+        version = Version.fromMavenFileName("guava-r06");
+        Assert.assertTrue("Version " + version + " is not parseable by this implementation", version == null);
     }
 }
