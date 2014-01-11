@@ -121,6 +121,12 @@ public class VersionTest {
         Assert.assertEquals("Version " + version + " base version should be 3.4.0", "3.4.0", version.getBaseVersionString());
         Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
 
+        // OSGi versions with qualifiers;
+        qualifiers.clear();
+        version = new Version("2.0.0.SNAPSHOT");
+        Assert.assertEquals("Version " + version + " part suffix should be .SNAPSHOT", ".SNAPSHOT", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 2.0.0", "2.0.0", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
     }
 
     @Test
