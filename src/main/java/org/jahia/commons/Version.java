@@ -98,6 +98,9 @@ public class Version implements Comparable<Version> {
         if (versionString == null) {
             throw new NumberFormatException("Null string passed as version !");
         }
+        if (versionString.length() == 0) {
+            throw new NumberFormatException("Empty string passed as version !");
+        }
         String trimmedVersionString = versionString.trim();
         String versionPart = null;
         String numberedVersionPart = null;
