@@ -35,6 +35,13 @@
 
     <dependencies>
         <dependency>
+            <!-- We use it for password digesting -->
+            <groupId>org.jasypt</groupId>
+            <artifactId>jasypt</artifactId>
+            <version>1.9.1</version>
+            <classifier>lite</classifier>
+        </dependency>
+        <dependency>
           <groupId>junit</groupId>
           <artifactId>junit</artifactId>
           <version>4.11</version>
