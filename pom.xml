@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.jahia.commons</groupId>
     <artifactId>jahia-commons</artifactId>
-    <version>1.0.5-SNAPSHOT</version>
+    <version>1.0.5</version>
     <name>Jahia Commons</name>
     <packaging>bundle</packaging>
 
@@ -16,7 +16,8 @@
         <connection>scm:git:git@github.com:Jahia/jahia-commons.git</connection>
         <url>scm:git:git@github.com:Jahia/jahia-commons.git</url>
         <developerConnection>scm:git:git@github.com:Jahia/jahia-commons.git</developerConnection>
-    </scm>
+      <tag>jahia-commons-1.0.5</tag>
+  </scm>
 
     <repositories>
         <repository>
