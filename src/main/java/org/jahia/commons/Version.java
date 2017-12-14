@@ -126,18 +126,26 @@ public class Version implements Comparable<Version> {
             int betaPos = versionPart.indexOf("b");
             int rcPos = versionPart.indexOf("rc");
 
-            String betaString = null;
-            String rcString = null;
             if (betaPos != -1) {
-                betaString = versionPart.substring(betaPos + 1).trim();
-                versionPart = versionPart.substring(0, betaPos);
-                betaNumber = Integer.parseInt(betaString);
-                versionPartSuffix = null;
+                String betaString = versionPart.substring(betaPos + 1).trim();
+                String rest = versionPart.substring(0, betaPos);
+                try {
+                    betaNumber = Integer.parseInt(betaString);
+                    versionPart = rest;
+                    versionPartSuffix = null;
+                } catch (NumberFormatException e) {
+                    // does not seem like a beta number: we will consider this part as suffix
+                }
             } else if (rcPos != -1) {
-                rcString = versionPart.substring(rcPos + 2).trim();
-                versionPart = versionPart.substring(0, rcPos);
-                releaseCandidateNumber = Integer.parseInt(rcString);
-                versionPartSuffix = null;
+                String rcString = versionPart.substring(rcPos + 2).trim();
+                String rest = versionPart.substring(0, rcPos);
+                try {
+                    releaseCandidateNumber = Integer.parseInt(rcString);
+                    versionPartSuffix = null;
+                    versionPart = rest; 
+                } catch (NumberFormatException e) {
+                    // does not seem like an RC number: we will consider this part as suffix
+                }
             }
 
             int underscorePos = versionPart.indexOf("_");

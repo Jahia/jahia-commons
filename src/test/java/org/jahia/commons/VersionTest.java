@@ -131,6 +131,26 @@ public class VersionTest {
         Assert.assertEquals("Version " + version + " base version should be 2.0.0", "2.0.0", version.getBaseVersionString());
         Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
 
+        version = new Version("1.2.3.beta1");
+        Assert.assertEquals("Version " + version + " part suffix should be .beta1", ".beta1", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+
+        version = new Version("1.2.3.b2b");
+        Assert.assertEquals("Version " + version + " part suffix should be .b2b", ".b2b", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+
+        version = new Version("1.2.3.rctest1");
+        Assert.assertEquals("Version " + version + " part suffix should be .rctest1", ".rctest1", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+
+        version = new Version("1.2.3.rc4test");
+        Assert.assertEquals("Version " + version + " part suffix should be .rc4test", ".rc4test", version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+
         try {
             version = new Version("");
             Assert.assertTrue("Empty version number should generate a NumberFormatException", true);
