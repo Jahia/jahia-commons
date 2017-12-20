@@ -141,8 +141,8 @@ public class Version implements Comparable<Version> {
                 String rest = versionPart.substring(0, rcPos);
                 try {
                     releaseCandidateNumber = Integer.parseInt(rcString);
+                    versionPart = rest;
                     versionPartSuffix = null;
-                    versionPart = rest; 
                 } catch (NumberFormatException e) {
                     // does not seem like an RC number: we will consider this part as suffix
                 }
@@ -231,6 +231,7 @@ public class Version implements Comparable<Version> {
      *
      * @return a lower case String representing the version
      */
+    @Override
     public String toString() {
         if (version == null) {
             StringBuilder result = new StringBuilder();
@@ -289,8 +290,8 @@ public class Version implements Comparable<Version> {
      * @throws ClassCastException if the passed parameter (o) is not a Version
      *                            class object.
      */
-    public int compareTo(Version o)
-            throws ClassCastException {
+    @Override
+    public int compareTo(Version o) {
         Version rightVersion = (Version) o;
         List<Integer> rightOrderedVersionNumbers = rightVersion.getOrderedVersionNumbers();
 
@@ -419,6 +420,7 @@ public class Version implements Comparable<Version> {
         return qualifiers;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
 

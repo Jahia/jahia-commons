@@ -118,38 +118,16 @@ public class VersionTest {
         qualifiers.add("BETA2");
         Assert.assertEquals("Version " + version + " qualifier should be BETA2", version.getQualifiers(), qualifiers);
 
-        qualifiers.clear();
         version = new Version("3.4.0.GA.");
         Assert.assertEquals("Version " + version + " part suffix should be .GA.", ".GA.", version.getVersionPartSuffix());
         Assert.assertEquals("Version " + version + " base version should be 3.4.0", "3.4.0", version.getBaseVersionString());
         Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
 
-        // OSGi versions with qualifiers;
-        qualifiers.clear();
-        version = new Version("2.0.0.SNAPSHOT");
-        Assert.assertEquals("Version " + version + " part suffix should be .SNAPSHOT", ".SNAPSHOT", version.getVersionPartSuffix());
-        Assert.assertEquals("Version " + version + " base version should be 2.0.0", "2.0.0", version.getBaseVersionString());
-        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
-
-        version = new Version("1.2.3.beta1");
-        Assert.assertEquals("Version " + version + " part suffix should be .beta1", ".beta1", version.getVersionPartSuffix());
-        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
-        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
-
-        version = new Version("1.2.3.b2b");
-        Assert.assertEquals("Version " + version + " part suffix should be .b2b", ".b2b", version.getVersionPartSuffix());
-        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
-        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
-
-        version = new Version("1.2.3.rctest1");
-        Assert.assertEquals("Version " + version + " part suffix should be .rctest1", ".rctest1", version.getVersionPartSuffix());
-        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
-        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
-
-        version = new Version("1.2.3.rc4test");
-        Assert.assertEquals("Version " + version + " part suffix should be .rc4test", ".rc4test", version.getVersionPartSuffix());
-        Assert.assertEquals("Version " + version + " base version should be 1.2.3", "1.2.3", version.getBaseVersionString());
-        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().size() == 0);
+        testOsgiVersionWithSuffix("2.0.0.SNAPSHOT", "2.0.0", ".SNAPSHOT");
+        testOsgiVersionWithSuffix("1.2.3.beta1", "1.2.3", ".beta1");
+        testOsgiVersionWithSuffix("1.2.3.b2b", "1.2.3", ".b2b");
+        testOsgiVersionWithSuffix("1.2.3.rctest1", "1.2.3", ".rctest1");
+        testOsgiVersionWithSuffix("1.2.3.rc4test", "1.2.3", ".rc4test");
 
         try {
             version = new Version("");
@@ -158,6 +136,13 @@ public class VersionTest {
             // this is the expected case
         }
 
+    }
+
+    private static void testOsgiVersionWithSuffix(String versionString, String expectedBaseVersion, String expectedSuffix) {
+        Version version = new Version(versionString);
+        Assert.assertEquals("Version " + version + " part suffix should be " + expectedSuffix, expectedSuffix, version.getVersionPartSuffix());
+        Assert.assertEquals("Version " + version + " base version should be " + expectedBaseVersion, expectedBaseVersion, version.getBaseVersionString());
+        Assert.assertTrue("Version " + version + " qualifiers should be empty", version.getQualifiers().isEmpty());
     }
 
     @Test
