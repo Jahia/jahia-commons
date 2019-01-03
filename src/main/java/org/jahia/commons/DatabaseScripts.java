@@ -118,12 +118,21 @@ public final class DatabaseScripts {
 
                 buffer = buffer.trim();
 
-                if (buffer.endsWith(";")) {
-                    // found seperator char in the script file, finish constructing
+                String bufferLowerCase = buffer.toLowerCase();
+                if (bufferLowerCase.startsWith("delimiter ")) {
+                    // we skip delimiter instruction for MySQL
+                    continue;
+                } else if (buffer.endsWith(";")) {
+                    // found separator char in the script file, finish constructing
                     curSQLStatement.append(buffer.substring(0,
-                            buffer.endsWith("end;") ? buffer.length() : buffer.length() - 1));
+                            bufferLowerCase.endsWith("end;") || bufferLowerCase.endsWith("end $$;")? buffer.length() : buffer.length() - 1));
                     String sqlStatement = curSQLStatement.toString().trim();
                     if (!"".equals(sqlStatement)) {
+                        String sqlStatementLowerCase = sqlStatement.toLowerCase();
+                        if (sqlStatementLowerCase.endsWith("end $$;")) {
+                            // the $$ is a special case for a MySQL delimiter when creating a trigger
+                            sqlStatement = sqlStatement.substring(0, sqlStatement.length() - " $$;".length()) + ";";
+                        }
                         scriptsRuntimeList.add(sqlStatement);
                     }
                     curSQLStatement = new StringBuilder();
