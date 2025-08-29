@@ -46,6 +46,7 @@ package org.jahia.commons.encryption;
 import org.jasypt.digest.PooledStringDigester;
 import org.jasypt.digest.StringDigester;
 import org.jasypt.encryption.StringEncryptor;
+import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
 
 /**
@@ -55,6 +56,20 @@ import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
  */
 public final class EncryptionUtils {
 
+    // Configuration keys
+    private static final String ENCRYPTOR_PASSWORD_ENV = "JAHIA_COMMONS_ENCRYPTOR_PASSWORD";
+    private static final String ENCRYPTOR_PASSWORD_PROP = "jahia-commons.encryptor.password";
+    private static final String ENCRYPTOR_ALGORITHM_ENV = "JAHIA_COMMONS_ENCRYPTOR_ALGORITHM";
+    private static final String ENCRYPTOR_ALGORITHM_PROP = "jahia-commons.encryptor.algorithm";
+
+    // Default values for backward compatibility
+    private static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
+
+    // Lazy initialization for string encryptor
+    private static volatile StringEncryptor encryptorInstance;
+    private static final Object ENCRYPTOR_LOCK = new Object();
+
+    // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
         static final PooledStringDigester INSTANCE = new PooledStringDigester();
 
@@ -65,21 +80,8 @@ public final class EncryptionUtils {
             INSTANCE.setPoolSize(4);
         }
     }
-
-    private static class StringEncryptorHolder {
-        static final StandardPBEStringEncryptor INSTANCE = new StandardPBEStringEncryptor();
-
-        static {
-            INSTANCE.setPassword(new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 }));
-        }
-    }
-
     private static StringDigester getSHA1DigesterLegacy() {
         return SHA1DigesterHolder.INSTANCE;
-    }
-
-    private static StringEncryptor getStringEncryptor() {
-        return StringEncryptorHolder.INSTANCE;
     }
 
     /**
@@ -136,7 +138,9 @@ public final class EncryptionUtils {
      * @param source
      *            the source text to be digested
      * @return the Base64 encoded SHA-1 digest of the provided text
+     * @deprecated in Jahia 7 a more robust PBKDF2 algorithm is used for password hashing. The previous SHA-1 based algorithm is no longer used
      */
+    @Deprecated
     public static String sha1DigestLegacy(String source) {
         return getSHA1DigesterLegacy().digest(source);
     }
@@ -146,5 +150,71 @@ public final class EncryptionUtils {
      */
     private EncryptionUtils() {
         super();
+    }
+
+    /**
+     * Allows applications to initialize the encryptor configuration before first use.
+     * This method should be called during application startup, before any encryption operations.
+     *
+     * @param password the encryption password (optional, will use config/default if null)
+     * @param algorithm the encryption algorithm (optional, will use config/default if null)
+     * @throws IllegalStateException if the encryptor is already initialized
+     */
+    public static void initializeEncryptor(String password, String algorithm) {
+        initializeEncryptor(password, algorithm, false);
+    }
+
+    /**
+     * Allows applications to initialize the encryptor configuration before first use.
+     * This method should be called during application startup, before any encryption operations.
+     *
+     * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
+     * already been used may cause data encrypted with the previous configuration to become
+     * undecryptable. This option is primarily intended for testing purposes.</p>
+     *
+     * @param password the encryption password (optional, will use config/default if null)
+     * @param algorithm the encryption algorithm (optional, will use config/default if null)
+     * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
+     * @throws IllegalStateException if the encryptor is already initialized and force is false
+     */
+    public static void initializeEncryptor(String password, String algorithm, boolean force) {
+        synchronized (ENCRYPTOR_LOCK) {
+            if (encryptorInstance != null && !force) {
+                throw new IllegalStateException("Encryptor already initialized. This method must be called before any encryption operations.");
+            }
+            encryptorInstance = createEncryptor(password, algorithm);
+        }
+    }
+
+    /**
+     * Creates a new encryptor instance with the specified or configured parameters.
+     *
+     * @param password the encryption password (if null, uses configuration or default)
+     * @param algorithm the encryption algorithm (if null, uses configuration or default)
+     * @return configured encryptor instance
+     */
+    private static StandardPBEStringEncryptor createEncryptor(String password, String algorithm) {
+        StandardPBEStringEncryptor encryptor = new StandardPBEStringEncryptor();
+
+        String finalPassword = password != null ? password :
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, DEFAULT_PASSWORD);
+        String finalAlgorithm = algorithm != null ? algorithm :
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_ALGORITHM_ENV, ENCRYPTOR_ALGORITHM_PROP, StandardPBEByteEncryptor.DEFAULT_ALGORITHM);
+
+        encryptor.setPassword(finalPassword);
+        encryptor.setAlgorithm(finalAlgorithm);
+        return encryptor;
+    }
+
+    private static StringEncryptor getStringEncryptor() {
+        if (encryptorInstance == null) {
+            synchronized (ENCRYPTOR_LOCK) {
+                if (encryptorInstance == null) {
+                    // Use configuration-based initialization if not explicitly initialized
+                    encryptorInstance = createEncryptor(null, null);
+                }
+            }
+        }
+        return encryptorInstance;
     }
 }

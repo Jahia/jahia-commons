@@ -72,4 +72,139 @@ public class EncryptionUtilsTest {
 
         Assert.assertEquals(EncryptionUtils.passwordBaseDecrypt(encrypted), pwd);
     }
+
+    @Test
+    public void testDefaultConfiguration() {
+        // Test that default configuration works (backward compatibility)
+        String testData = "test-default-config";
+        String encrypted = EncryptionUtils.passwordBaseEncrypt(testData);
+        String decrypted = EncryptionUtils.passwordBaseDecrypt(encrypted);
+
+        Assert.assertEquals("Default configuration should work", testData, decrypted);
+        Assert.assertNotEquals("Encrypted data should be different from original", testData, encrypted);
+        Assert.assertTrue("Encrypted data should not be empty", encrypted.length() > 0);
+    }
+
+    @Test
+    public void testEncryptionConsistency() {
+        // Test that multiple encryptions of the same data with same config produce different results
+        // (due to salt) but decrypt to the same original value
+        String testData = "consistency-test";
+
+        String encrypted1 = EncryptionUtils.passwordBaseEncrypt(testData);
+        String encrypted2 = EncryptionUtils.passwordBaseEncrypt(testData);
+
+        // Encrypted values should be different (due to salt)
+        Assert.assertNotEquals("Multiple encryptions should produce different results", encrypted1, encrypted2);
+
+        // But both should decrypt to the same original value
+        Assert.assertEquals("First encryption should decrypt correctly", testData, EncryptionUtils.passwordBaseDecrypt(encrypted1));
+        Assert.assertEquals("Second encryption should decrypt correctly", testData, EncryptionUtils.passwordBaseDecrypt(encrypted2));
+    }
+
+    @Test
+    public void testInitializeEncryptorWithCustomPassword() {
+        try {
+            // Force initialize with custom password for testing
+            String customPassword = "my-custom-password-123";
+            EncryptionUtils.initializeEncryptor(customPassword, null, true);
+
+            String testData = "test-custom-password";
+            String encrypted = EncryptionUtils.passwordBaseEncrypt(testData);
+            String decrypted = EncryptionUtils.passwordBaseDecrypt(encrypted);
+
+            Assert.assertEquals("Custom password initialization should work", testData, decrypted);
+
+        } finally {
+            // Reset to default configuration for other tests
+            EncryptionUtils.initializeEncryptor(null, null, true);
+        }
+    }
+
+    @Test
+    public void testInitializeEncryptorWithCustomAlgorithm() {
+        try {
+            // Force initialize with custom algorithm for testing
+            EncryptionUtils.initializeEncryptor(null, "PBEWithMD5AndTripleDES", true);
+
+            String testData = "test-custom-algorithm";
+            String encrypted = EncryptionUtils.passwordBaseEncrypt(testData);
+            String decrypted = EncryptionUtils.passwordBaseDecrypt(encrypted);
+
+            Assert.assertEquals("Custom algorithm initialization should work", testData, decrypted);
+
+        } finally {
+            // Reset to default configuration for other tests
+            EncryptionUtils.initializeEncryptor(null, null, true);
+        }
+    }
+
+    @Test
+    public void testInitializeEncryptorAlreadyInitializedException() {
+        // Test that attempting to initialize twice throws appropriate exception
+        try {
+            EncryptionUtils.initializeEncryptor("password", null);
+            EncryptionUtils.initializeEncryptor("password1", null);
+            Assert.fail("Expected IllegalStateException when trying to initialize already initialized encryptor");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue("Exception message should mention already initialized",
+                e.getMessage().contains("already initialized"));
+        }
+    }
+
+    @Test
+    public void testSystemPropertiesConfiguration() {
+        String originalPassword = System.getProperty("jahia-commons.encryptor.password");
+        String originalAlgorithm = System.getProperty("jahia-commons.encryptor.algorithm");
+
+        try {
+            String testData = "test-system-props";
+
+            // First, encrypt with default configuration
+            EncryptionUtils.initializeEncryptor(null, null, true); // Reset to defaults
+            String encryptedWithDefaults = EncryptionUtils.passwordBaseEncrypt(testData);
+
+            // Set system properties with different configuration
+            System.setProperty("jahia-commons.encryptor.password", "system-prop-password");
+            System.setProperty("jahia-commons.encryptor.algorithm", "PBEWithMD5AndTripleDES");
+
+            // Force reinitialize to pick up the new system properties
+            EncryptionUtils.initializeEncryptor(null, null, true);
+
+            // Encrypt with the new configuration
+            String encryptedWithSystemProps = EncryptionUtils.passwordBaseEncrypt(testData);
+            String decrypted = EncryptionUtils.passwordBaseDecrypt(encryptedWithSystemProps);
+
+            // Verify that encryption/decryption works with the new configuration
+            Assert.assertEquals("System properties should be used for encryption/decryption", testData, decrypted);
+
+            // Verify that the encrypted results are different (proving config was applied)
+            Assert.assertNotEquals("Encrypted text should be different with different configuration",
+                encryptedWithDefaults, encryptedWithSystemProps);
+
+            // Verify that data encrypted with defaults cannot be decrypted with new config
+            try {
+                String attemptDecryptOldWithNew = EncryptionUtils.passwordBaseDecrypt(encryptedWithDefaults);
+                Assert.fail("Should not be able to decrypt data encrypted with different password/algorithm");
+            } catch (Exception e) {
+                // Expected - different configuration should not be able to decrypt old data
+                Assert.assertTrue("Should get encryption exception when trying to decrypt with wrong config", true);
+            }
+
+        } finally {
+            // Restore original properties
+            if (originalPassword != null) {
+                System.setProperty("jahia-commons.encryptor.password", originalPassword);
+            } else {
+                System.clearProperty("jahia-commons.encryptor.password");
+            }
+            if (originalAlgorithm != null) {
+                System.setProperty("jahia-commons.encryptor.algorithm", originalAlgorithm);
+            } else {
+                System.clearProperty("jahia-commons.encryptor.algorithm");
+            }
+            // Reset to default configuration for other tests
+            EncryptionUtils.initializeEncryptor(null, null, true);
+        }
+    }
 }
