@@ -48,7 +48,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.jahia.commons</groupId>
     <artifactId>jahia-commons</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0-SNAPSHOT</version>
     <name>Jahia Commons</name>
     <!-- TODO:  this project is actually not used at all as a bundle. https://github.com/Jahia/jahia-commons/issues/32 -->
     <packaging>bundle</packaging>
@@ -63,7 +63,7 @@
         <connection>scm:git:git@github.com:Jahia/jahia-commons.git</connection>
         <url>scm:git:git@github.com:Jahia/jahia-commons.git</url>
         <developerConnection>scm:git:git@github.com:Jahia/jahia-commons.git</developerConnection>
-      <tag>1_1_0</tag>
+      <tag>HEAD</tag>
   </scm>
 
     <repositories>
