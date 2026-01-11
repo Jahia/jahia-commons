@@ -86,7 +86,7 @@
             <!-- We use it for password digesting -->
             <groupId>org.jasypt</groupId>
             <artifactId>jasypt</artifactId>
-            <version>1.9.3</version>
+            <version>1.9.3.redhat_3</version>
             <classifier>lite</classifier>
         </dependency>
         <dependency>
