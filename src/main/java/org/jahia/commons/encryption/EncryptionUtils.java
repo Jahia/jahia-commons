@@ -69,6 +69,9 @@ public final class EncryptionUtils {
     private static volatile StringEncryptor encryptorInstance;
     private static final Object ENCRYPTOR_LOCK = new Object();
 
+    // Whether the password the active encryptor uses is the backward-compatibility default
+    private static volatile boolean defaultPasswordInUse;
+
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
         static final PooledStringDigester INSTANCE = new PooledStringDigester();
@@ -193,17 +196,44 @@ public final class EncryptionUtils {
      * @param algorithm the encryption algorithm (if null, uses configuration or default)
      * @return configured encryptor instance
      */
-    private static StandardPBEStringEncryptor createEncryptor(String password, String algorithm) {
-        StandardPBEStringEncryptor encryptor = new StandardPBEStringEncryptor();
+    private static StringEncryptor createEncryptor(String password, String algorithm) {
+        String finalPassword = resolvePassword(password);
+        // Null when no algorithm is named, which separates a deliberate choice from the absence of one.
+        String configuredAlgorithm = algorithm != null ? algorithm :
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_ALGORITHM_ENV, ENCRYPTOR_ALGORITHM_PROP, null);
 
-        String finalPassword = password != null ? password :
+        StandardPBEStringEncryptor legacyEncryptor = new StandardPBEStringEncryptor();
+        legacyEncryptor.setPassword(finalPassword);
+        legacyEncryptor.setAlgorithm(configuredAlgorithm != null ? configuredAlgorithm
+            : StandardPBEByteEncryptor.DEFAULT_ALGORITHM);
+
+        AesGcmStringEncryptor markedEncryptor = new AesGcmStringEncryptor(finalPassword);
+
+        defaultPasswordInUse = DEFAULT_PASSWORD.equals(finalPassword);
+
+        // An operator who names an algorithm keeps that algorithm for new values.
+        StringEncryptor writer = configuredAlgorithm != null ? legacyEncryptor : markedEncryptor;
+        return new VersionedStringEncryptor(writer, legacyEncryptor, markedEncryptor);
+    }
+
+    private static String resolvePassword(String password) {
+        return password != null ? password :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, DEFAULT_PASSWORD);
-        String finalAlgorithm = algorithm != null ? algorithm :
-            ConfigurationUtils.getConfigValue(ENCRYPTOR_ALGORITHM_ENV, ENCRYPTOR_ALGORITHM_PROP, StandardPBEByteEncryptor.DEFAULT_ALGORITHM);
+    }
 
-        encryptor.setPassword(finalPassword);
-        encryptor.setAlgorithm(finalAlgorithm);
-        return encryptor;
+    /**
+     * Reports whether the encryptor uses the password that this class keeps for backward compatibility.
+     *
+     * <p>A caller that knows its own runtime context can use this method to require a password of its own. This class
+     * cannot make that requirement itself, because it does not know the context it runs in.</p>
+     *
+     * <p>The method does not initialize the encryptor. Before initialization the answer comes from the configuration,
+     * and after initialization the answer is the password the encryptor holds.</p>
+     *
+     * @return true when the active password is the backward-compatibility default
+     */
+    public static boolean isUsingDefaultPassword() {
+        return encryptorInstance != null ? defaultPasswordInUse : DEFAULT_PASSWORD.equals(resolvePassword(null));
     }
 
     private static StringEncryptor getStringEncryptor() {
