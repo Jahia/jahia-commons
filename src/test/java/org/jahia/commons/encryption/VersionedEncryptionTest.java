@@ -183,9 +183,9 @@ public class VersionedEncryptionTest {
 
     @Test
     public void rawKeyMaterialOfTheWrongLengthIsRefusedWhenTheEncryptorIsBuilt() {
+        String halfLength = "base64:" + Base64.getEncoder().encodeToString(new byte[16]);
         try {
-            EncryptionUtils.initializeEncryptor("base64:" + Base64.getEncoder().encodeToString(new byte[16]),
-                    null, null, true);
+            EncryptionUtils.initializeEncryptor(halfLength, null, null, true);
             fail("Raw key material of the wrong length should be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should state the length required, and got: " + e.getMessage(),

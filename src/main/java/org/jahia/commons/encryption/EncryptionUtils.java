@@ -256,9 +256,10 @@ public final class EncryptionUtils {
         // A value carrying no marker was written under the password this installation configured, and under
         // the shipped one when it configured none. A password the application supplies is not visible here,
         // so an application that supplies one names this key itself.
+        String legacyPasswordDefault = configuredPassword != null ? configuredPassword : DEFAULT_PASSWORD;
         String finalLegacyPassword = legacyPassword != null ? legacyPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
-                configuredPassword != null ? configuredPassword : DEFAULT_PASSWORD);
+                legacyPasswordDefault);
 
         StringEncryptor legacyReader = jasyptEncryptor(finalLegacyPassword, finalAlgorithm);
         // Without a key of this installation's own, new values stay in the format every version reads, under
