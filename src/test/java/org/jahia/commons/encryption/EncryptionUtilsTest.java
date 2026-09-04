@@ -156,6 +156,7 @@ public class EncryptionUtilsTest {
     public void testSystemPropertiesConfiguration() {
         String originalPassword = System.getProperty("jahia-commons.encryptor.password");
         String originalAlgorithm = System.getProperty("jahia-commons.encryptor.algorithm");
+        String originalLegacyPassword = System.getProperty("jahia-commons.encryptor.legacy.password");
 
         try {
             String testData = "test-system-props";
@@ -182,14 +183,14 @@ public class EncryptionUtilsTest {
             Assert.assertNotEquals("Encrypted text should be different with different configuration",
                 encryptedWithDefaults, encryptedWithSystemProps);
 
-            // Verify that data encrypted with defaults cannot be decrypted with new config
-            try {
-                String attemptDecryptOldWithNew = EncryptionUtils.passwordBaseDecrypt(encryptedWithDefaults);
-                Assert.fail("Should not be able to decrypt data encrypted with different password/algorithm");
-            } catch (Exception e) {
-                // Expected - different configuration should not be able to decrypt old data
-                Assert.assertTrue("Should get encryption exception when trying to decrypt with wrong config", true);
-            }
+            // Verify that data encrypted with the earlier configuration is read with the key and the
+            // algorithm that wrote it, once those are named as the ones to read such a value with
+            System.clearProperty("jahia-commons.encryptor.algorithm");
+            System.setProperty("jahia-commons.encryptor.legacy.password", EncryptionUtils.DEFAULT_PASSWORD);
+            EncryptionUtils.initializeEncryptor(null, null, true);
+
+            Assert.assertEquals("Data encrypted with the earlier configuration should stay readable",
+                testData, EncryptionUtils.passwordBaseDecrypt(encryptedWithDefaults));
 
         } finally {
             // Restore original properties
@@ -202,6 +203,11 @@ public class EncryptionUtilsTest {
                 System.setProperty("jahia-commons.encryptor.algorithm", originalAlgorithm);
             } else {
                 System.clearProperty("jahia-commons.encryptor.algorithm");
+            }
+            if (originalLegacyPassword != null) {
+                System.setProperty("jahia-commons.encryptor.legacy.password", originalLegacyPassword);
+            } else {
+                System.clearProperty("jahia-commons.encryptor.legacy.password");
             }
             // Reset to default configuration for other tests
             EncryptionUtils.initializeEncryptor(null, null, true);
