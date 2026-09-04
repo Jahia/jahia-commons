@@ -99,22 +99,25 @@ final class AesGcmStringEncryptor implements StringEncryptor {
             byte[] plain = cipher.doFinal(envelope, IV_LENGTH_BYTES, envelope.length - IV_LENGTH_BYTES);
             return new String(plain, StandardCharsets.UTF_8);
         } catch (GeneralSecurityException e) {
-            throw new EncryptionOperationNotPossibleException();
+            // The cause travels with the refusal: a caller that logs it can tell one refusal from another.
+            throw new EncryptionOperationNotPossibleException(e);
         }
     }
 
     private static byte[] envelopeOf(String encryptedMessage) {
         if (!encryptedMessage.startsWith(MARKER)) {
-            throw new EncryptionOperationNotPossibleException();
+            throw new EncryptionOperationNotPossibleException("The value carries no " + MARKER + " marker.");
         }
         byte[] envelope;
         try {
             envelope = Base64.getDecoder().decode(encryptedMessage.substring(MARKER.length()));
         } catch (IllegalArgumentException e) {
-            throw new EncryptionOperationNotPossibleException();
+            throw new EncryptionOperationNotPossibleException(e);
         }
-        if (envelope.length < IV_LENGTH_BYTES + TAG_LENGTH_BITS / Byte.SIZE) {
-            throw new EncryptionOperationNotPossibleException();
+        int shortest = IV_LENGTH_BYTES + TAG_LENGTH_BITS / Byte.SIZE;
+        if (envelope.length < shortest) {
+            throw new EncryptionOperationNotPossibleException("The value holds " + envelope.length
+                    + " bytes, and an initialization vector and a tag need " + shortest + ".");
         }
         return envelope;
     }
@@ -149,8 +152,13 @@ final class AesGcmStringEncryptor implements StringEncryptor {
     }
 
     /**
-     * The salt comes from the passphrase itself, so two installations that hold different passphrases derive
-     * under different salts, and one installation derives the same key on every startup.
+     * The salt comes from the passphrase itself. That keeps one installation deriving the same key on every
+     * startup, and it keeps two installations that hold different passphrases on different salts.
+     *
+     * <p>It adds nothing against precomputation. A candidate passphrase yields its own salt, so the
+     * iteration count is the whole cost of testing one candidate. An application that holds key material
+     * passes it with the {@link #RAW_KEY_PREFIX} prefix and reaches none of this: the passphrase path is for
+     * a password set by hand.</p>
      */
     private static byte[] saltFor(String passphrase) {
         try {

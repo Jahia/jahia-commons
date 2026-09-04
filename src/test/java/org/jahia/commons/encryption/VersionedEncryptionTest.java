@@ -92,6 +92,19 @@ public class VersionedEncryptionTest {
         refuses(SITE_ENVELOPE);
     }
 
+    /**
+     * Pins the reach of that default. It follows a password this library resolves from the configuration, and
+     * it cannot follow a password the application supplies, because the configuration does not hold that one.
+     * An application that supplies a password names the legacy key in the same call.
+     */
+    @Test
+    public void aPasswordTheApplicationSuppliesDoesNotBecomeTheLegacyKey() {
+        EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
+
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+        refuses(SITE_ENVELOPE);
+    }
+
     @Test
     public void theLegacyKeyDefaultsToTheConfiguredPassword() {
         System.setProperty(PASSWORD_PROP, SITE_PASSWORD);
