@@ -67,6 +67,13 @@ public final class EncryptionUtils {
     private static final String ENCRYPTOR_LEGACY_PASSWORD_ENV = "JAHIA_COMMONS_ENCRYPTOR_LEGACY_PASSWORD";
     private static final String ENCRYPTOR_LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
 
+    /**
+     * Names the password shipped with this library, so that a configuration points at that password without
+     * holding a copy of it. It is read for the legacy key alone: an installation names the key that reads a
+     * value written before it held one of its own, and this token is how it names the shipped one.
+     */
+    public static final String SHIPPED_PASSWORD = "default";
+
     // Default values for backward compatibility
     static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
 
@@ -260,6 +267,12 @@ public final class EncryptionUtils {
         String finalLegacyPassword = legacyPassword != null ? legacyPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
                 legacyPasswordDefault);
+        if (SHIPPED_PASSWORD.equals(finalLegacyPassword)) {
+            // Resolved after the argument and the configuration, so the token reaches this library by either
+            // route. The password that seals new values never reads it, because an installation that asks to
+            // seal under the shipped password is asking for what this change moves away from.
+            finalLegacyPassword = DEFAULT_PASSWORD;
+        }
 
         StringEncryptor legacyReader = jasyptEncryptor(finalLegacyPassword, finalAlgorithm);
         // Without a key of this installation's own, new values stay in the format every version reads, under

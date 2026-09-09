@@ -105,6 +105,40 @@ public class VersionedEncryptionTest {
         refuses(SITE_ENVELOPE);
     }
 
+    /**
+     * The token names the shipped password, so a configuration points at it without holding a copy. That is
+     * what an installation upgrading from an earlier version has to name, and it is the value nobody wants
+     * written into a configuration file or a documentation page.
+     */
+    @Test
+    public void theTokenNamesTheShippedPasswordForTheLegacyKey() {
+        EncryptionUtils.initializeEncryptor(KEY_A, null, EncryptionUtils.SHIPPED_PASSWORD, true);
+
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+    }
+
+    @Test
+    public void theTokenReachesTheLegacyKeyThroughTheConfigurationToo() {
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_PASSWORD);
+        EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
+
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+    }
+
+    /**
+     * The token is read for the legacy key alone. As the password that seals new values it is a passphrase
+     * like any other, so it seals under a key derived from it and not under the shipped password.
+     */
+    @Test
+    public void theTokenIsNotReadForThePasswordThatSealsNewValues() {
+        EncryptionUtils.initializeEncryptor(EncryptionUtils.SHIPPED_PASSWORD, null, null, true);
+
+        assertFalse("The token should not seal new values with the shipped password",
+                EncryptionUtils.isUsingDefaultKey());
+        assertTrue("A new value should be sealed with a key derived from the token as a passphrase",
+                EncryptionUtils.passwordBaseEncrypt(SITE_VALUE).startsWith(MARKER));
+    }
+
     @Test
     public void theLegacyKeyDefaultsToTheConfiguredPassword() {
         System.setProperty(PASSWORD_PROP, SITE_PASSWORD);
