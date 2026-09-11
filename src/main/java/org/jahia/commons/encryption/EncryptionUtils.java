@@ -88,6 +88,7 @@ public final class EncryptionUtils {
     private static final Object ENCRYPTOR_LOCK = new Object();
     private static final AtomicBoolean DEFAULT_KEY_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean DEPRECATED_ALGORITHM_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean EARLIER_FORMAT_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
@@ -295,12 +296,16 @@ public final class EncryptionUtils {
         // the key that reads them back.
         String sealingPassword = finalPassword != null ? finalPassword : finalLegacyPassword;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingPassword);
-        if (usingDefaultKey) {
-            reportDefaultKeyOnce();
-        }
         AesGcmStringEncryptor markedReader =
             finalPassword == null ? null : AesGcmStringEncryptor.forSecret(finalPassword);
         StringEncryptor writer = markedReader != null ? markedReader : legacyReader;
+        if (usingDefaultKey) {
+            reportDefaultKeyOnce();
+        } else if (markedReader == null) {
+            // The key is this installation's own, and it reads the stored values rather than sealing new
+            // ones. A node of a cluster reaches this when the key reached its peers and not this node.
+            reportEarlierFormatOnce();
+        }
         return new VersionedStringEncryptor(writer, markedReader, legacyReader, usingDefaultKey);
     }
 
@@ -336,6 +341,27 @@ public final class EncryptionUtils {
                             + "installation held a key of its own, and new values no longer use it. Rename it "
                             + "to " + ENCRYPTOR_LEGACY_ALGORITHM_PROP + ", and keep it set for as long as a "
                             + "value written under it is still stored.");
+        }
+    }
+
+    /**
+     * Clears the flags that keep each report to one line per JVM, so that a test can observe a report the
+     * suite has already drawn. Nothing in production resets them: a report says what the configuration is,
+     * and repeating it on every rebuild of the encryptor would say it once per deployed module.
+     */
+    static void resetReporting() {
+        DEFAULT_KEY_REPORTED.set(false);
+        DEPRECATED_ALGORITHM_REPORTED.set(false);
+        EARLIER_FORMAT_REPORTED.set(false);
+    }
+
+    private static void reportEarlierFormatOnce() {
+        if (EARLIER_FORMAT_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    "New values are written in the format earlier versions read, under the key named by "
+                            + ENCRYPTOR_LEGACY_PASSWORD_PROP + ", because " + ENCRYPTOR_PASSWORD_PROP
+                            + " is not set. On a cluster whose other nodes hold that key, this node cannot "
+                            + "read what they write. Set it here to the same key they hold.");
         }
     }
 

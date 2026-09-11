@@ -6,7 +6,13 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
@@ -199,6 +205,36 @@ public class VersionedEncryptionTest {
                 EncryptionUtils.passwordBaseEncrypt(SITE_VALUE).startsWith(MARKER));
     }
 
+    /**
+     * A node that holds the key its values were written under, and no key to seal new ones with, keeps
+     * writing in the earlier format. On a cluster whose other nodes hold a key, that node cannot read what
+     * they write, so the report is what an operator greps for.
+     */
+    @Test
+    public void writingInTheEarlierFormatUnderAKeyOfTheInstallationsOwnIsReported() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The report should name the property that is not set, and got: " + reported.get(0),
+                reported.get(0).contains(PASSWORD_PROP));
+    }
+
+    @Test
+    public void sealingUnderTheShippedPasswordIsReportedInsteadOfTheEarlierFormat() {
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The shipped password should be the report, and got: " + reported.get(0),
+                reported.get(0).contains("shipped with this library"));
+    }
+
+    @Test
+    public void aKeyOfTheInstallationsOwnIsNotReported() {
+        assertTrue(reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, null, null, true)).isEmpty());
+    }
+
     @Test
     public void theLegacyKeyDefaultsToTheConfiguredPassword() {
         System.setProperty(PASSWORD_PROP, SITE_PASSWORD);
@@ -363,6 +399,40 @@ public class VersionedEncryptionTest {
 
         assertFalse("A key of the installation's own seals new values, whatever reads the earlier ones",
                 EncryptionUtils.isUsingDefaultKey());
+    }
+
+    /**
+     * Runs the action with every report flag cleared, and returns what the library reported while it ran.
+     */
+    private static List<String> reportsOf(Runnable action) {
+        List<String> reported = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
+                    reported.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() {
+                // nothing is buffered
+            }
+
+            @Override
+            public void close() {
+                // nothing is held open
+            }
+        };
+        Logger logger = Logger.getLogger(EncryptionUtils.class.getName());
+        EncryptionUtils.resetReporting();
+        logger.addHandler(handler);
+        try {
+            action.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return reported;
     }
 
     private static void refuses(String value) {
