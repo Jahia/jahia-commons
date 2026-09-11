@@ -53,6 +53,14 @@ final class VersionedStringEncryptor implements StringEncryptor {
     }
 
     /**
+     * @return whether new values are written in the format every earlier version reads, which is the case
+     *         whenever no key of this installation's own is available to seal them
+     */
+    boolean isSealingInTheEarlierFormat() {
+        return markedReader == null;
+    }
+
+    /**
      * @return whether new values are sealed with the key shipped with this library
      */
     boolean isUsingDefaultKey() {

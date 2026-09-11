@@ -235,6 +235,33 @@ public class VersionedEncryptionTest {
         assertTrue(reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, null, null, true)).isEmpty());
     }
 
+    /**
+     * The case isUsingDefaultKey() cannot report: a key of the operator's reads the stored values, none
+     * seals new ones, so they keep the earlier format under a key no one else holds.
+     */
+    @Test
+    public void theEarlierFormatIsReportedForALegacyKeyOfTheOperatorsOwn() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertTrue("New values stay in the earlier format", EncryptionUtils.isSealingInTheEarlierFormat());
+        assertFalse("The key that seals them is not the shipped one", EncryptionUtils.isUsingDefaultKey());
+    }
+
+    @Test
+    public void theEarlierFormatIsReportedWithNothingConfigured() {
+        assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertTrue(EncryptionUtils.isUsingDefaultKey());
+    }
+
+    @Test
+    public void theEarlierFormatIsNotReportedUnderAKeyOfTheInstallationsOwn() {
+        EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
+
+        assertFalse(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertFalse(EncryptionUtils.isUsingDefaultKey());
+    }
+
     @Test
     public void theLegacyKeyDefaultsToTheConfiguredPassword() {
         System.setProperty(PASSWORD_PROP, SITE_PASSWORD);

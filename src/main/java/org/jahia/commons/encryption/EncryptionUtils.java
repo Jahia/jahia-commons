@@ -74,11 +74,14 @@ public final class EncryptionUtils {
      * holding a copy of it. It is read for the legacy key alone: an installation names the key that reads a
      * value written before it held one of its own, and this token is how it names the shipped one.
      *
-     * <p>The token reads as an instruction rather than as a password, so that an installation whose earlier
-     * password is a plausible word does not resolve to the shipped one instead. It carries no
-     * <code>${}</code>, because the property holding it is interpolated before this library sees it.</p>
+     * <p>The token reads as a marker rather than as a password, so that an installation whose earlier
+     * password is a plausible word does not resolve to the shipped one instead. Every character in it is
+     * inert on each route an operator sets it by: it carries no <code>${}</code>, which a properties file
+     * interpolates before this library sees it; it opens with no character that YAML reads as a tag, which
+     * a compose file or a Kubernetes manifest would; and it triggers no history expansion in an interactive
+     * shell.</p>
      */
-    public static final String SHIPPED_KEY_TOKEN = "!shipped";
+    public static final String SHIPPED_KEY_TOKEN = "__shipped__";
 
     // Default values for backward compatibility
     static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
@@ -228,6 +231,26 @@ public final class EncryptionUtils {
             }
             encryptorInstance = createEncryptor(password, algorithm, legacyPassword);
         }
+    }
+
+    /**
+     * Reports whether new values are written in the format every earlier version reads, which is the case
+     * whenever this installation holds no key of its own.
+     *
+     * <p>This is the wider of the two questions, and the one a policy asks. {@link #isUsingDefaultKey()}
+     * answers for the shipped key alone, so it reports false for an installation that names a key of the
+     * operator's in {@code jahia-commons.encryptor.legacy.password} and none in
+     * {@code jahia-commons.encryptor.password}: such an installation writes under a key nobody else holds,
+     * and still writes it in a format that carries no marker and no authentication tag.</p>
+     *
+     * @return true when no key of this installation's own seals new values
+     */
+    public static boolean isSealingInTheEarlierFormat() {
+        StringEncryptor current = encryptorInstance;
+        if (current instanceof VersionedStringEncryptor) {
+            return ((VersionedStringEncryptor) current).isSealingInTheEarlierFormat();
+        }
+        return ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, null) == null;
     }
 
     /**
