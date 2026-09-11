@@ -61,7 +61,8 @@ final class AesGcmStringEncryptor implements StringEncryptor {
      *
      * @param secret raw key material when it carries {@link #RAW_KEY_PREFIX}, a passphrase otherwise
      * @return an encryptor holding the key that secret names
-     * @throws IllegalArgumentException if raw key material does not decode to {@link #KEY_LENGTH_BYTES} bytes
+     * @throws IllegalArgumentException if the secret is blank, or if raw key material does not decode to
+     *             {@link #KEY_LENGTH_BYTES} bytes
      */
     static AesGcmStringEncryptor forSecret(String secret) {
         return new AesGcmStringEncryptor(new SecretKeySpec(keyMaterialOf(secret), KEY_ALGORITHM));
@@ -123,6 +124,13 @@ final class AesGcmStringEncryptor implements StringEncryptor {
     }
 
     private static byte[] keyMaterialOf(String secret) {
+        if (secret.trim().isEmpty()) {
+            // Only an application passing the secret as an argument reaches this: a configured one is read
+            // through ConfigurationUtils, which treats a blank value as unset and falls back instead.
+            throw new IllegalArgumentException("A secret sealing new values cannot be blank. Set "
+                    + "jahia-commons.encryptor.password to a key of this installation's own, or leave it "
+                    + "unset to keep new values in the format earlier versions read.");
+        }
         if (!secret.startsWith(RAW_KEY_PREFIX)) {
             return derive(secret);
         }

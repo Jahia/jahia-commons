@@ -174,6 +174,31 @@ public class VersionedEncryptionTest {
         assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(stored));
     }
 
+    /**
+     * A blank secret derives a key from the empty string, which is a key every installation passing one
+     * would share. The configuration routes treat a blank value as unset, so only an application passing
+     * the secret as an argument reaches this.
+     */
+    @Test
+    public void aBlankSecretIsRefused() {
+        try {
+            EncryptionUtils.initializeEncryptor("   ", null, null, true);
+            fail("A blank secret should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the property to set, and got: " + e.getMessage(),
+                    e.getMessage().contains(PASSWORD_PROP));
+        }
+    }
+
+    @Test
+    public void aBlankConfiguredPasswordIsReadAsUnset() {
+        System.setProperty(PASSWORD_PROP, "  ");
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertFalse("A blank configured password should leave new values in the earlier format",
+                EncryptionUtils.passwordBaseEncrypt(SITE_VALUE).startsWith(MARKER));
+    }
+
     @Test
     public void theLegacyKeyDefaultsToTheConfiguredPassword() {
         System.setProperty(PASSWORD_PROP, SITE_PASSWORD);
