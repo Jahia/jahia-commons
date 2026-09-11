@@ -121,14 +121,14 @@ public class VersionedEncryptionTest {
      */
     @Test
     public void theTokenNamesTheShippedPasswordForTheLegacyKey() {
-        EncryptionUtils.initializeEncryptor(KEY_A, null, EncryptionUtils.SHIPPED_PASSWORD, true);
+        EncryptionUtils.initializeEncryptor(KEY_A, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
 
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
     }
 
     @Test
     public void theTokenReachesTheLegacyKeyThroughTheConfigurationToo() {
-        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_PASSWORD);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
         EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
 
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
@@ -142,7 +142,7 @@ public class VersionedEncryptionTest {
     @Test
     public void theTokenIsRefusedAsThePasswordThatSealsNewValues() {
         try {
-            EncryptionUtils.initializeEncryptor(EncryptionUtils.SHIPPED_PASSWORD, null, null, true);
+            EncryptionUtils.initializeEncryptor(EncryptionUtils.SHIPPED_KEY_TOKEN, null, null, true);
             fail("The token should be refused as the password that seals new values");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the property that reads the token, and got: " + e.getMessage(),
@@ -408,9 +408,9 @@ public class VersionedEncryptionTest {
         List<String> reported = new ArrayList<>();
         Handler handler = new Handler() {
             @Override
-            public void publish(LogRecord record) {
-                if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
-                    reported.add(record.getMessage());
+            public void publish(LogRecord entry) {
+                if (entry.getLevel().intValue() >= Level.WARNING.intValue()) {
+                    reported.add(entry.getMessage());
                 }
             }
 

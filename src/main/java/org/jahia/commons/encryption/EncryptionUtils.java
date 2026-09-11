@@ -78,7 +78,7 @@ public final class EncryptionUtils {
      * password is a plausible word does not resolve to the shipped one instead. It carries no
      * <code>${}</code>, because the property holding it is interpolated before this library sees it.</p>
      */
-    public static final String SHIPPED_PASSWORD = "!shipped";
+    public static final String SHIPPED_KEY_TOKEN = "!shipped";
 
     // Default values for backward compatibility
     static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
@@ -267,37 +267,37 @@ public final class EncryptionUtils {
      * @return configured encryptor instance
      */
     private static StringEncryptor createEncryptor(String password, String algorithm, String legacyPassword) {
-        String configuredPassword =
+        String configuredSecret =
             ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, null);
-        String finalPassword = password != null ? password : configuredPassword;
+        String ownSecret = password != null ? password : configuredSecret;
         String finalAlgorithm = algorithm != null ? algorithm : legacyAlgorithm();
         // A value carrying no marker was written under the password this installation configured, and under
         // the shipped one when it configured none. A password the application supplies is not visible here,
         // so an application that supplies one names this key itself.
-        String legacyPasswordDefault = configuredPassword != null ? configuredPassword : DEFAULT_PASSWORD;
-        String finalLegacyPassword = legacyPassword != null ? legacyPassword :
+        String legacySecretDefault = configuredSecret != null ? configuredSecret : DEFAULT_PASSWORD;
+        String legacySecret = legacyPassword != null ? legacyPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
-                legacyPasswordDefault);
-        if (SHIPPED_PASSWORD.equals(finalPassword)) {
+                legacySecretDefault);
+        if (SHIPPED_KEY_TOKEN.equals(ownSecret)) {
             // The token names the key that reads what is already stored. Sealing under it is what this change
             // moves away from, so it is refused here rather than taken as a passphrase spelt like the token.
-            throw new IllegalArgumentException("'" + SHIPPED_PASSWORD + "' names the password shipped with "
+            throw new IllegalArgumentException("'" + SHIPPED_KEY_TOKEN + "' names the password shipped with "
                     + "this library, and it is read for " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " alone. Set "
                     + ENCRYPTOR_PASSWORD_PROP + " to a key of this installation's own.");
         }
-        if (SHIPPED_PASSWORD.equals(finalLegacyPassword)) {
+        if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
-            finalLegacyPassword = DEFAULT_PASSWORD;
+            legacySecret = DEFAULT_PASSWORD;
         }
 
-        StringEncryptor legacyReader = jasyptEncryptor(finalLegacyPassword, finalAlgorithm);
+        StringEncryptor legacyReader = jasyptEncryptor(legacySecret, finalAlgorithm);
         // Without a key of this installation's own, new values stay in the format every version reads, under
         // the key that reads them back.
-        String sealingPassword = finalPassword != null ? finalPassword : finalLegacyPassword;
-        boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingPassword);
+        String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
+        boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
         AesGcmStringEncryptor markedReader =
-            finalPassword == null ? null : AesGcmStringEncryptor.forSecret(finalPassword);
+            ownSecret == null ? null : AesGcmStringEncryptor.forSecret(ownSecret);
         StringEncryptor writer = markedReader != null ? markedReader : legacyReader;
         if (usingDefaultKey) {
             reportDefaultKeyOnce();
