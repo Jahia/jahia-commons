@@ -66,13 +66,19 @@ public final class EncryptionUtils {
     private static final String ENCRYPTOR_ALGORITHM_PROP = "jahia-commons.encryptor.algorithm";
     private static final String ENCRYPTOR_LEGACY_PASSWORD_ENV = "JAHIA_COMMONS_ENCRYPTOR_LEGACY_PASSWORD";
     private static final String ENCRYPTOR_LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
+    private static final String ENCRYPTOR_LEGACY_ALGORITHM_ENV = "JAHIA_COMMONS_ENCRYPTOR_LEGACY_ALGORITHM";
+    private static final String ENCRYPTOR_LEGACY_ALGORITHM_PROP = "jahia-commons.encryptor.legacy.algorithm";
 
     /**
      * Names the password shipped with this library, so that a configuration points at that password without
      * holding a copy of it. It is read for the legacy key alone: an installation names the key that reads a
      * value written before it held one of its own, and this token is how it names the shipped one.
+     *
+     * <p>The token reads as an instruction rather than as a password, so that an installation whose earlier
+     * password is a plausible word does not resolve to the shipped one instead. It carries no
+     * <code>${}</code>, because the property holding it is interpolated before this library sees it.</p>
      */
-    public static final String SHIPPED_PASSWORD = "default";
+    public static final String SHIPPED_PASSWORD = "!shipped";
 
     // Default values for backward compatibility
     static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
@@ -81,6 +87,7 @@ public final class EncryptionUtils {
     private static volatile StringEncryptor encryptorInstance;
     private static final Object ENCRYPTOR_LOCK = new Object();
     private static final AtomicBoolean DEFAULT_KEY_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean DEPRECATED_ALGORITHM_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
@@ -231,6 +238,10 @@ public final class EncryptionUtils {
      * ({@code jahia-commons.encryptor.legacy.password}), which is the shipped one on every installation that
      * has not named another.</p>
      *
+     * <p>No caller in this repository reads this outside the tests yet. Jahia core is the planned one: a
+     * clustered installation generates no key of its own, so a node can run on the shipped password with a
+     * log line as the only signal, and core is where the policy that refuses it belongs.</p>
+     *
      * @return true when new values are sealed with the password shipped with this library
      */
     public static boolean isUsingDefaultKey() {
@@ -258,8 +269,7 @@ public final class EncryptionUtils {
         String configuredPassword =
             ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, null);
         String finalPassword = password != null ? password : configuredPassword;
-        String finalAlgorithm = algorithm != null ? algorithm :
-            ConfigurationUtils.getConfigValue(ENCRYPTOR_ALGORITHM_ENV, ENCRYPTOR_ALGORITHM_PROP, StandardPBEByteEncryptor.DEFAULT_ALGORITHM);
+        String finalAlgorithm = algorithm != null ? algorithm : legacyAlgorithm();
         // A value carrying no marker was written under the password this installation configured, and under
         // the shipped one when it configured none. A password the application supplies is not visible here,
         // so an application that supplies one names this key itself.
@@ -267,10 +277,16 @@ public final class EncryptionUtils {
         String finalLegacyPassword = legacyPassword != null ? legacyPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
                 legacyPasswordDefault);
+        if (SHIPPED_PASSWORD.equals(finalPassword)) {
+            // The token names the key that reads what is already stored. Sealing under it is what this change
+            // moves away from, so it is refused here rather than taken as a passphrase spelt like the token.
+            throw new IllegalArgumentException("'" + SHIPPED_PASSWORD + "' names the password shipped with "
+                    + "this library, and it is read for " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " alone. Set "
+                    + ENCRYPTOR_PASSWORD_PROP + " to a key of this installation's own.");
+        }
         if (SHIPPED_PASSWORD.equals(finalLegacyPassword)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
-            // route. The password that seals new values never reads it, because an installation that asks to
-            // seal under the shipped password is asking for what this change moves away from.
+            // route.
             finalLegacyPassword = DEFAULT_PASSWORD;
         }
 
@@ -286,6 +302,41 @@ public final class EncryptionUtils {
             finalPassword == null ? null : AesGcmStringEncryptor.forSecret(finalPassword);
         StringEncryptor writer = markedReader != null ? markedReader : legacyReader;
         return new VersionedStringEncryptor(writer, markedReader, legacyReader, usingDefaultKey);
+    }
+
+    /**
+     * Resolves the algorithm that reads a value carrying no marker. New values are AES-GCM whatever this
+     * says, so the property names the format the stored values were written in, not the one they will be
+     * written in next.
+     *
+     * <p>{@code jahia-commons.encryptor.algorithm} named the algorithm every value was written with, and it
+     * is kept as an alias of {@code jahia-commons.encryptor.legacy.algorithm} so that an installation which
+     * set it keeps reading its values. Dropping it makes every unmarked value unreadable whenever the
+     * algorithm was not the jasypt default.</p>
+     */
+    private static String legacyAlgorithm() {
+        String configured = ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_ALGORITHM_ENV,
+                ENCRYPTOR_LEGACY_ALGORITHM_PROP, null);
+        if (configured != null) {
+            return configured;
+        }
+        String deprecated =
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_ALGORITHM_ENV, ENCRYPTOR_ALGORITHM_PROP, null);
+        if (deprecated != null) {
+            reportDeprecatedAlgorithmOnce();
+            return deprecated;
+        }
+        return StandardPBEByteEncryptor.DEFAULT_ALGORITHM;
+    }
+
+    private static void reportDeprecatedAlgorithmOnce() {
+        if (DEPRECATED_ALGORITHM_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    ENCRYPTOR_ALGORITHM_PROP + " names the algorithm that reads a value stored before this "
+                            + "installation held a key of its own, and new values no longer use it. Rename it "
+                            + "to " + ENCRYPTOR_LEGACY_ALGORITHM_PROP + ", and keep it set for as long as a "
+                            + "value written under it is still stored.");
+        }
     }
 
     private static StringEncryptor jasyptEncryptor(String password, String algorithm) {

@@ -28,7 +28,7 @@ import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 final class AesGcmStringEncryptor implements StringEncryptor {
 
     /** Marks a value stored in this format. It sits outside the Base64 alphabet, so routing is decidable. */
-    static final String MARKER = "{v2}";
+    static final String MARKER = "v2:";
 
     /** A secret carrying this prefix is raw key material. Without it, the secret is a passphrase. */
     static final String RAW_KEY_PREFIX = "base64:";

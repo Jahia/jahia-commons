@@ -8,6 +8,7 @@ import static org.junit.Assert.fail;
 
 import java.util.Base64;
 
+import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 import org.junit.After;
@@ -22,8 +23,9 @@ public class VersionedEncryptionTest {
     private static final String PASSWORD_PROP = "jahia-commons.encryptor.password";
     private static final String ALGORITHM_PROP = "jahia-commons.encryptor.algorithm";
     private static final String LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
+    private static final String LEGACY_ALGORITHM_PROP = "jahia-commons.encryptor.legacy.algorithm";
 
-    private static final String MARKER = "{v2}";
+    private static final String MARKER = "v2:";
 
     // Two keys of raw material, and a passphrase that happens to be Base64 of 32 bytes.
     private static final String KEY_A = "base64:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
@@ -37,7 +39,7 @@ public class VersionedEncryptionTest {
 
     // A stored value in the marked format, sealed under KEY_A.
     private static final String MARKED_ENVELOPE_UNDER_KEY_A =
-            "{v2}pQeTlA86anKNLYv+ssG11k8LvXnC+x3xf8Bx3CyvFAyvFO2SXIP8k3yhWBogS/260PU=";
+            "v2:pQeTlA86anKNLYv+ssG11k8LvXnC+x3xf8Bx3CyvFAyvFO2SXIP8k3yhWBogS/260PU=";
 
     // Produced the same way, under a password of the installation's own.
     private static final String SITE_PASSWORD = "site-owned-key";
@@ -49,6 +51,7 @@ public class VersionedEncryptionTest {
         System.clearProperty(PASSWORD_PROP);
         System.clearProperty(ALGORITHM_PROP);
         System.clearProperty(LEGACY_PASSWORD_PROP);
+        System.clearProperty(LEGACY_ALGORITHM_PROP);
         EncryptionUtils.initializeEncryptor(null, null, null, true);
     }
 
@@ -126,17 +129,49 @@ public class VersionedEncryptionTest {
     }
 
     /**
-     * The token is read for the legacy key alone. As the password that seals new values it is a passphrase
-     * like any other, so it seals under a key derived from it and not under the shipped password.
+     * The token is read for the legacy key alone. Naming it as the password that seals new values asks to
+     * seal under the shipped password, which is what this change moves away from, so it is refused rather
+     * than taken as a passphrase that happens to be spelt like the token.
      */
     @Test
-    public void theTokenIsNotReadForThePasswordThatSealsNewValues() {
-        EncryptionUtils.initializeEncryptor(EncryptionUtils.SHIPPED_PASSWORD, null, null, true);
+    public void theTokenIsRefusedAsThePasswordThatSealsNewValues() {
+        try {
+            EncryptionUtils.initializeEncryptor(EncryptionUtils.SHIPPED_PASSWORD, null, null, true);
+            fail("The token should be refused as the password that seals new values");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the property that reads the token, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+    }
 
-        assertFalse("The token should not seal new values with the shipped password",
-                EncryptionUtils.isUsingDefaultKey());
-        assertTrue("A new value should be sealed with a key derived from the token as a passphrase",
-                EncryptionUtils.passwordBaseEncrypt(SITE_VALUE).startsWith(MARKER));
+    /**
+     * An installation that named an algorithm under the earlier property keeps reading its values once the
+     * property carries the name that matches what it now does.
+     */
+    @Test
+    public void theLegacyAlgorithmReadsAValueTheDeprecatedNameWrote() {
+        System.setProperty(ALGORITHM_PROP, "PBEWithMD5AndTripleDES");
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+        String stored = EncryptionUtils.passwordBaseEncrypt(SITE_VALUE);
+        assertFalse("A value written with no configured key should carry no marker", stored.startsWith(MARKER));
+
+        System.clearProperty(ALGORITHM_PROP);
+        System.setProperty(LEGACY_ALGORITHM_PROP, "PBEWithMD5AndTripleDES");
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(stored));
+    }
+
+    @Test
+    public void theLegacyAlgorithmWinsOverTheDeprecatedName() {
+        System.setProperty(LEGACY_ALGORITHM_PROP, "PBEWithMD5AndTripleDES");
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+        String stored = EncryptionUtils.passwordBaseEncrypt(SITE_VALUE);
+
+        System.setProperty(ALGORITHM_PROP, StandardPBEByteEncryptor.DEFAULT_ALGORITHM);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(stored));
     }
 
     @Test

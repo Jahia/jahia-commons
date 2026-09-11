@@ -43,7 +43,11 @@ final class VersionedStringEncryptor implements StringEncryptor {
             return legacyReader.decrypt(encryptedMessage);
         }
         if (markedReader == null) {
-            throw new EncryptionOperationNotPossibleException();
+            // Live on a clustered node that reached no key: its peers seal values this node cannot read, and
+            // it seals its own in the earlier format. The message is what tells that apart from a wrong key.
+            throw new EncryptionOperationNotPossibleException("The value carries the "
+                    + AesGcmStringEncryptor.MARKER + " marker, and this installation has no key for that "
+                    + "format. Set jahia-commons.encryptor.password to the key the value was sealed with.");
         }
         return markedReader.decrypt(encryptedMessage);
     }
