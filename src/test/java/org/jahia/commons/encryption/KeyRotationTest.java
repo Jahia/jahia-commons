@@ -29,6 +29,10 @@ public class KeyRotationTest {
     private static final String KEY_3 = "base64:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
     private static final String KEY_ID_1 = "b0166dad948115e3";
     private static final String KEY_ID_2 = "3abd372c819f2560";
+    // A passphrase, and the raw form of the key it derives, produced outside this codebase.
+    private static final String PASSPHRASE = "site-owned-key";
+    private static final String KEY_THE_PASSPHRASE_DERIVES = "base64:EqLngLvTL4Wja+BvijkrRCkzFe9DVpsns7MfBsg1KV0=";
+    private static final String KEY_ID_OF_THE_PASSPHRASE = "f76d8b3299501cad";
 
     private static final String VALUE = "value-under-a-site-key";
 
@@ -42,6 +46,8 @@ public class KeyRotationTest {
         for (int n = 0; n <= 12; n++) {
             System.clearProperty(PREVIOUS_PROP + n);
         }
+        System.clearProperty(PREVIOUS_PROP + "01");
+        System.clearProperty(PREVIOUS_PROP + "\u0662");
         EncryptionUtils.initializeEncryptor(null, null, null, true);
     }
 
@@ -75,8 +81,9 @@ public class KeyRotationTest {
         String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         // A number may be skipped.
-        System.setProperty(PREVIOUS_PROP + "1", KEY_1);
+        System.setProperty(PREVIOUS_PROP + "01", KEY_1);
         System.setProperty(PREVIOUS_PROP + "10", KEY_3);
+        System.setProperty(PREVIOUS_PROP + "\u0662", EncryptionUtils.NO_KEY_TOKEN);
         System.setProperty(PASSWORD_PROP, KEY_2);
         EncryptionUtils.initializeEncryptor(null, null, null, true);
 
@@ -95,7 +102,8 @@ public class KeyRotationTest {
     }
 
     /**
-     * Rewriting the key id routes the value to another key of the ring, and that key refuses it.
+     * Rewriting the key id routes the value to another key of the ring, and that key refuses it. That the
+     * prefix is authenticated is pinned by a stored value in VersionedEncryptionTest.
      */
     @Test
     public void aRelabelledValueIsRefused() {
@@ -178,12 +186,29 @@ public class KeyRotationTest {
 
     @Test
     public void thePrimaryKeyNamedAgainAsReadOnlyIsRefused() {
-        refusedAtInitializationNaming(KEY_1, singletonList(KEY_1), KEY_ID_1);
+        refusedAtInitializationNaming(KEY_1, singletonList(KEY_1), "One key is named twice");
     }
 
     @Test
     public void aReadOnlyKeyNamedTwiceIsRefused() {
-        refusedAtInitializationNaming(KEY_2, asList(KEY_1, KEY_3, KEY_1), KEY_ID_1);
+        refusedAtInitializationNaming(KEY_2, asList(KEY_1, KEY_3, KEY_1), "One key is named twice");
+    }
+
+    @Test
+    public void aPassphraseAndTheKeyItDerivesNamedTogetherAreRefused() {
+        refusedAtInitializationNaming(KEY_THE_PASSPHRASE_DERIVES, singletonList(PASSPHRASE),
+                KEY_ID_OF_THE_PASSPHRASE);
+    }
+
+    @Test
+    public void aNullOrBlankReadOnlyKeyIsRefusedNamingThePropertyOfReadOnlyKeys() {
+        refusedAtInitializationNaming(KEY_1, singletonList(null), PREVIOUS_PROP);
+        refusedAtInitializationNaming(KEY_1, singletonList("  "), PREVIOUS_PROP);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void theKeyIdOfNoSecretIsRefused() {
+        EncryptionUtils.keyIdOf(null);
     }
 
     private static void refusedAtInitialization(String password, List<String> previous) {

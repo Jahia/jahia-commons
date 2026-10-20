@@ -104,6 +104,8 @@ public final class EncryptionUtils {
     private static final AtomicBoolean DEFAULT_KEY_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean DEPRECATED_ALGORITHM_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean EARLIER_FORMAT_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean PASSPHRASE_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean UNUSED_READ_ONLY_KEYS_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
@@ -280,6 +282,10 @@ public final class EncryptionUtils {
      * from the format of the value alone: nothing is decrypted.
      *
      * @param value a stored value
+     * <p>A value that names a key the ring does not hold, and a value carrying no marker once the reader of
+     * that format is closed, answer true as well, and reading them is refused. A reseal therefore expects a
+     * refusal, and counts such a value rather than stops on it.</p>
+     *
      * @return true when the value carries no format marker, or names a key other than the one that seals new
      *         values; false for null, and for every value when no key of this installation's own seals new
      *         values, because sealing again would write the format the value already has
@@ -291,8 +297,13 @@ public final class EncryptionUtils {
 
     /**
      * Returns the key id a value sealed under the given secret carries. It is derived from the secret under
-     * a label of its own, so it discloses nothing of the key that encrypts, and an application can use it
-     * to tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor.
+     * a label of its own, so it holds no material of the key that encrypts, and an application can use it to
+     * tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor.
+     *
+     * <p>Every stored value carries this id. For raw key material, it is unique to that key. For a
+     * passphrase, it is the same on every installation that holds that passphrase, and testing a guessed
+     * passphrase against it costs one stretch, as a trial decryption does. A {@code base64:} key of 32
+     * random bytes is therefore the secret to configure.</p>
      *
      * @param secret raw key material when it carries the {@code base64:} prefix, a passphrase otherwise
      * @return the key id, as lowercase hex
@@ -300,6 +311,9 @@ public final class EncryptionUtils {
      *             length
      */
     public static String keyIdOf(String secret) {
+        if (secret == null) {
+            throw new IllegalArgumentException("A key id is derived from a secret, and none was given.");
+        }
         return AesGcmStringEncryptor.keyIdOf(secret);
     }
 
@@ -380,6 +394,11 @@ public final class EncryptionUtils {
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         for (String readOnlySecret : readOnlySecrets) {
+            if (readOnlySecret == null || readOnlySecret.trim().isEmpty()) {
+                // The configuration route treats a blank value as unset, so only an argument reaches this.
+                throw new IllegalArgumentException("A read-only key, as " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
+                        + "<n> names one, cannot be null or blank.");
+            }
             refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
         }
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
@@ -400,6 +419,12 @@ public final class EncryptionUtils {
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
         KeyRing ring = ownSecret == null ? null : new KeyRing(ownSecret, readOnlySecrets);
+        if (ring == null && !readOnlySecrets.isEmpty()) {
+            reportUnusedReadOnlyKeysOnce();
+        }
+        if (ring != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
+            reportPassphraseOnce();
+        }
         StringEncryptor writer = ring != null ? ring.primary() : legacyReader;
         if (usingDefaultKey) {
             reportDefaultKeyOnce();
@@ -463,6 +488,28 @@ public final class EncryptionUtils {
         DEFAULT_KEY_REPORTED.set(false);
         DEPRECATED_ALGORITHM_REPORTED.set(false);
         EARLIER_FORMAT_REPORTED.set(false);
+        PASSPHRASE_REPORTED.set(false);
+        UNUSED_READ_ONLY_KEYS_REPORTED.set(false);
+    }
+
+    private static void reportPassphraseOnce() {
+        if (PASSPHRASE_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    ENCRYPTOR_PASSWORD_PROP + " holds a passphrase, and a passphrase is only as strong as it is "
+                            + "hard to guess. Prefer a key of 32 random bytes, set as '"
+                            + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
+                            + "'openssl rand -base64 32' produces. Keep the passphrase as "
+                            + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> until every value is sealed again.");
+        }
+    }
+
+    private static void reportUnusedReadOnlyKeysOnce() {
+        if (UNUSED_READ_ONLY_KEYS_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    "Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and no value is read "
+                            + "under them, because " + ENCRYPTOR_PASSWORD_PROP + " is not set. Set it to the key "
+                            + "that seals new values.");
+        }
     }
 
     private static void reportEarlierFormatOnce() {

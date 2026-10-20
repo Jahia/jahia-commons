@@ -1,5 +1,6 @@
 package org.jahia.commons.encryption;
 
+import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -49,6 +50,12 @@ public class VersionedEncryptionTest {
     private static final String KEY_ID_A = "b0166dad948115e3";
     private static final String MARKED_ENVELOPE_UNDER_KEY_A =
             "v2:b0166dad948115e3:sDCKHGaayTvHaBaTL/vj2neNAjkOmbuC3ikywT1PQMlic71O08+ApTnzAtZDjZY2oYE=";
+    // The same value under KEY_A, with the prefix left out of the authenticated data.
+    private static final String MARKED_ENVELOPE_UNDER_KEY_A_WITHOUT_AAD =
+            "v2:b0166dad948115e3:HL0YZCt/R+jHhGt6B8kHqCWQY5sMFWYYe+/YE7po2KnKkSXjSjc3LwzolIQQP5ew42s=";
+    // A value in the layout of version 1.2.0, sealed under KEY_A.
+    private static final String VERSION_1_2_0_ENVELOPE_UNDER_KEY_A =
+            "v2:pQeTlA86anKNLYv+ssG11k8LvXnC+x3xf8Bx3CyvFAyvFO2SXIP8k3yhWBogS/260PU=";
     private static final String KEY_ID_SITE_PASSWORD = "f76d8b3299501cad";
     private static final String MARKED_ENVELOPE_UNDER_SITE_PASSWORD =
             "v2:f76d8b3299501cad:KO8iyBo1SDgYTwhWRf8bhcI3QekRL/3sZYhO5+oeGzR7731aLdVritp7nXdbhQw93x0=";
@@ -296,6 +303,47 @@ public class VersionedEncryptionTest {
         EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
 
         assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_SITE_PASSWORD));
+    }
+
+    @Test
+    public void aValueWhosePrefixIsNotAuthenticatedIsRefused() {
+        EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
+
+        refuses(MARKED_ENVELOPE_UNDER_KEY_A_WITHOUT_AAD);
+    }
+
+    @Test
+    public void aValueInTheLayoutOfVersion120IsRefusedWithAMessageNamingThatVersion() {
+        EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
+
+        try {
+            EncryptionUtils.passwordBaseDecrypt(VERSION_1_2_0_ENVELOPE_UNDER_KEY_A);
+            fail("A value in the layout of version 1.2.0 should be refused");
+        } catch (EncryptionOperationNotPossibleException e) {
+            assertTrue("The message should name the version, and got: " + e.getMessage(),
+                    e.getMessage().contains("1.2.0"));
+        }
+    }
+
+    @Test
+    public void aPassphraseThatSealsNewValuesIsReported() {
+        List<String> reported =
+                reportsOf(() -> EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The report should name the raw key prefix, and got: " + reported.get(0),
+                reported.get(0).contains("base64:"));
+    }
+
+    @Test
+    public void readOnlyKeysWithoutAKeyThatSealsAreReported() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null,
+                singletonList(KEY_A), null, null, true));
+
+        assertTrue("The report should name the read-only keys, and got: " + reported,
+                reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.")));
     }
 
     @Test

@@ -60,7 +60,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
         String keyId = AesGcmStringEncryptor.keyIdIn(encryptedMessage);
         if (keyId == null) {
             throw new EncryptionOperationNotPossibleException("The value carries the "
-                    + AesGcmStringEncryptor.MARKER + " marker and no key id after it.");
+                    + AesGcmStringEncryptor.MARKER + " marker and no key id after it. Version 1.2.0 wrote values "
+                    + "in that form, and this version does not read them.");
         }
         AesGcmStringEncryptor key = ring.forKeyId(keyId);
         if (key == null) {
@@ -73,8 +74,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
 
     /**
      * @param value a stored value
-     * @return whether sealing the value again would move it to the primary key: it carries no marker, or it
-     *         names another key. Always false when no key seals new values in the marked format, because a
+     * @return whether the value is not under the primary key: it carries no marker, or it names another key,
+     *         whether the ring holds that key or not. Always false when no key seals new values in the marked format, because a
      *         reseal would then write the value in the format it already has.
      */
     boolean needsReseal(String value) {

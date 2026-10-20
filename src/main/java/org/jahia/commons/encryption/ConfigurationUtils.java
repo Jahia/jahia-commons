@@ -43,11 +43,13 @@
  */
 package org.jahia.commons.encryption;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeSet;
+import java.util.Map;
+import java.util.Properties;
+import java.util.TreeMap;
 
 /**
  * Configuration utilities for retrieving values from environment variables and system properties.
@@ -55,6 +57,10 @@ import java.util.TreeSet;
  * @author Jahia Solutions Group SA
  */
 public final class ConfigurationUtils {
+
+    /** Orders numeric suffixes by their value, and two spellings of one value by their text. */
+    private static final Comparator<String> BY_NUMBER =
+            Comparator.comparing((String suffix) -> new BigInteger(suffix)).thenComparing(Comparator.naturalOrder());
 
     /**
      * Gets configuration value from environment variable, system property, or default value.
@@ -84,35 +90,34 @@ public final class ConfigurationUtils {
 
     /**
      * Gets the values of a numbered family of keys, such as {@code PREFIX_1} and {@code prefix.1}, ordered by
-     * their number. For each number, the environment variable takes precedence over the system property, and
-     * a blank value counts as unset. A number may be skipped, so removing one key leaves the others in place.
+     * their number. A number is written in ASCII digits, and a number may be skipped, so removing one key
+     * leaves the others in place. When an environment variable and a system property carry the same
+     * suffix, the environment variable takes precedence, as {@link #getConfigValue} does for a single key.
+     * A blank value counts as unset.
      *
      * @param envPrefix the environment variable prefix, which the number follows
      * @param propPrefix the system property prefix, which the number follows
      * @return the values in ascending order of their number, empty when none is set
      */
     public static List<String> getConfigValues(String envPrefix, String propPrefix) {
-        SortedSet<Long> numbers = new TreeSet<>();
-        collectNumbers(System.getenv().keySet(), envPrefix, numbers);
-        collectNumbers(System.getProperties().stringPropertyNames(), propPrefix, numbers);
-        List<String> values = new ArrayList<>();
-        for (Long number : numbers) {
-            String value = getConfigValue(envPrefix + number, propPrefix + number, null);
-            if (value != null) {
-                values.add(value);
-            }
+        Map<String, String> bySuffix = new TreeMap<>(BY_NUMBER);
+        Properties properties = System.getProperties();
+        for (String name : properties.stringPropertyNames()) {
+            putIfNumbered(bySuffix, propPrefix, name, properties.getProperty(name));
         }
-        return values;
+        for (Map.Entry<String, String> variable : System.getenv().entrySet()) {
+            putIfNumbered(bySuffix, envPrefix, variable.getKey(), variable.getValue());
+        }
+        return new ArrayList<>(bySuffix.values());
     }
 
-    private static void collectNumbers(Set<String> keys, String prefix, Set<Long> numbers) {
-        for (String key : keys) {
-            if (key.startsWith(prefix)) {
-                String suffix = key.substring(prefix.length());
-                if (!suffix.isEmpty() && suffix.length() < 19 && suffix.chars().allMatch(Character::isDigit)) {
-                    numbers.add(Long.parseLong(suffix));
-                }
-            }
+    private static void putIfNumbered(Map<String, String> bySuffix, String prefix, String key, String value) {
+        if (!key.startsWith(prefix) || value == null || value.trim().isEmpty()) {
+            return;
+        }
+        String suffix = key.substring(prefix.length());
+        if (!suffix.isEmpty() && suffix.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            bySuffix.put(suffix, value);
         }
     }
 

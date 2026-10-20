@@ -1,9 +1,11 @@
 package org.jahia.commons.encryption;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The keys of the marked format an installation holds: one primary key, which seals every new value, and
@@ -18,10 +20,19 @@ final class KeyRing {
     /**
      * @param primarySecret the secret of the key that seals new values
      * @param readOnlySecrets the secrets of the keys that only open values, in the order they were named
-     * @throws IllegalArgumentException if two of the secrets yield the same key id, which is the case when
-     *             one key is named twice
+     * @throws IllegalArgumentException if two of the secrets are the same, or yield the same key id, which is
+     *             the case when one key is named twice, once as a passphrase and once as the key it derives
      */
     KeyRing(String primarySecret, List<String> readOnlySecrets) {
+        // The same secret written twice is caught here, before any passphrase is stretched.
+        Set<String> secrets = new HashSet<>();
+        secrets.add(primarySecret);
+        for (String secret : readOnlySecrets) {
+            if (!secrets.add(secret)) {
+                throw new IllegalArgumentException("One key is named twice. Name each key once, either as the "
+                        + "primary key or as a read-only key.");
+            }
+        }
         primary = AesGcmStringEncryptor.forSecret(primarySecret);
         Map<String, AesGcmStringEncryptor> keys = new LinkedHashMap<>();
         keys.put(primary.getKeyId(), primary);
