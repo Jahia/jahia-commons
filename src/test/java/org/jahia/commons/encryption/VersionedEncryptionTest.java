@@ -43,9 +43,15 @@ public class VersionedEncryptionTest {
     private static final String EARLIER_VALUE = "value-from-an-earlier-version";
     private static final String EARLIER_ENVELOPE = "j+9rrpqFfEUdZiep6qzPj5Et7spc49pWmeG/3LbZZ5xxtWwQsj9NbA==";
 
-    // A stored value in the marked format, sealed under KEY_A.
+    // Stored values in the marked format, produced outside this codebase with the Python cryptography
+    // package, so the suite reads a value it did not write itself. The second one is sealed under the key
+    // SITE_PASSWORD derives, so it pins the derivation of a passphrase too.
+    private static final String KEY_ID_A = "b0166dad948115e3";
     private static final String MARKED_ENVELOPE_UNDER_KEY_A =
-            "v2:pQeTlA86anKNLYv+ssG11k8LvXnC+x3xf8Bx3CyvFAyvFO2SXIP8k3yhWBogS/260PU=";
+            "v2:b0166dad948115e3:sDCKHGaayTvHaBaTL/vj2neNAjkOmbuC3ikywT1PQMlic71O08+ApTnzAtZDjZY2oYE=";
+    private static final String KEY_ID_SITE_PASSWORD = "f76d8b3299501cad";
+    private static final String MARKED_ENVELOPE_UNDER_SITE_PASSWORD =
+            "v2:f76d8b3299501cad:KO8iyBo1SDgYTwhWRf8bhcI3QekRL/3sZYhO5+oeGzR7731aLdVritp7nXdbhQw93x0=";
 
     // Produced the same way, under a password of the installation's own.
     private static final String SITE_PASSWORD = "site-owned-key";
@@ -271,14 +277,38 @@ public class VersionedEncryptionTest {
     }
 
     /**
-     * Pins the stored form itself, so a change to the marker, the initialization vector length or the tag
-     * length shows up as a value this version can no longer read.
+     * Pins the stored form itself, so a change to the marker, the key id, the subkeys, the additional
+     * authenticated data, the initialization vector length or the tag length shows up as a value this
+     * version can no longer read.
      */
     @Test
     public void aStoredMarkedValueIsReadableUnderTheKeyThatSealedIt() {
         EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
 
         assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_KEY_A));
+    }
+
+    /**
+     * Pins the derivation of a passphrase: its salt and its iteration count.
+     */
+    @Test
+    public void aStoredMarkedValueIsReadableUnderThePassphraseThatSealedIt() {
+        EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
+
+        assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_SITE_PASSWORD));
+    }
+
+    @Test
+    public void theKeyIdOfASecretIsPinned() {
+        assertEquals(KEY_ID_A, EncryptionUtils.keyIdOf(KEY_A));
+        assertEquals(KEY_ID_SITE_PASSWORD, EncryptionUtils.keyIdOf(SITE_PASSWORD));
+    }
+
+    @Test
+    public void aNewValueNamesTheKeyThatSealedIt() {
+        EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
+
+        assertTrue(EncryptionUtils.passwordBaseEncrypt(SITE_VALUE).startsWith(MARKER + KEY_ID_A + ":"));
     }
 
     @Test
@@ -318,7 +348,7 @@ public class VersionedEncryptionTest {
         EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
         String encrypted = EncryptionUtils.passwordBaseEncrypt(SITE_VALUE);
 
-        int position = MARKER.length() + 4;
+        int position = (MARKER + KEY_ID_A + ":").length() + 4;
         char current = encrypted.charAt(position);
         String altered = encrypted.substring(0, position) + (current == 'A' ? 'B' : 'A')
                 + encrypted.substring(position + 1);
@@ -331,14 +361,14 @@ public class VersionedEncryptionTest {
     public void aValueTooShortToHoldAnInitializationVectorAndATagIsRefused() {
         EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
 
-        refuses(MARKER + Base64.getEncoder().encodeToString(new byte[27]));
+        refuses(MARKER + KEY_ID_A + ":" + Base64.getEncoder().encodeToString(new byte[27]));
     }
 
     @Test
     public void aValueThatIsNotBase64IsRefused() {
         EncryptionUtils.initializeEncryptor(KEY_A, null, null, true);
 
-        refuses(MARKER + "not base64 at all");
+        refuses(MARKER + KEY_ID_A + ":not base64 at all");
     }
 
     @Test

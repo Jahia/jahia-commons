@@ -43,6 +43,12 @@
  */
 package org.jahia.commons.encryption;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
+
 /**
  * Configuration utilities for retrieving values from environment variables and system properties.
  *
@@ -74,6 +80,40 @@ public final class ConfigurationUtils {
 
         // Return default value
         return defaultValue;
+    }
+
+    /**
+     * Gets the values of a numbered family of keys, such as {@code PREFIX_1} and {@code prefix.1}, ordered by
+     * their number. For each number, the environment variable takes precedence over the system property, and
+     * a blank value counts as unset. A number may be skipped, so removing one key leaves the others in place.
+     *
+     * @param envPrefix the environment variable prefix, which the number follows
+     * @param propPrefix the system property prefix, which the number follows
+     * @return the values in ascending order of their number, empty when none is set
+     */
+    public static List<String> getConfigValues(String envPrefix, String propPrefix) {
+        SortedSet<Long> numbers = new TreeSet<>();
+        collectNumbers(System.getenv().keySet(), envPrefix, numbers);
+        collectNumbers(System.getProperties().stringPropertyNames(), propPrefix, numbers);
+        List<String> values = new ArrayList<>();
+        for (Long number : numbers) {
+            String value = getConfigValue(envPrefix + number, propPrefix + number, null);
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
+    private static void collectNumbers(Set<String> keys, String prefix, Set<Long> numbers) {
+        for (String key : keys) {
+            if (key.startsWith(prefix)) {
+                String suffix = key.substring(prefix.length());
+                if (!suffix.isEmpty() && suffix.length() < 19 && suffix.chars().allMatch(Character::isDigit)) {
+                    numbers.add(Long.parseLong(suffix));
+                }
+            }
+        }
     }
 
     /**

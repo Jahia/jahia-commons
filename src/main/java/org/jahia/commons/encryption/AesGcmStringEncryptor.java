@@ -1,5 +1,6 @@
 package org.jahia.commons.encryption;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -9,6 +10,7 @@ import java.util.Arrays;
 import java.util.Base64;
 
 import javax.crypto.Cipher;
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
@@ -21,14 +23,22 @@ import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 /**
  * Reads and writes the marked value format: AES-256-GCM with one random initialization vector per value.
  *
- * <p>The stored value is {@link #MARKER}, then the Base64 form of the initialization vector followed by the
- * ciphertext and the authentication tag. The tag makes a value that was sealed with another key, or altered
- * since it was written, refuse to open rather than return bytes.</p>
+ * <p>The stored value is {@link #MARKER}, the key id of the key that sealed it, {@link #KEY_ID_SEPARATOR},
+ * then the Base64 form of the initialization vector followed by the ciphertext and the authentication tag.
+ * Everything ahead of the Base64 is bound to the ciphertext as additional authenticated data, so a value
+ * whose key id was rewritten refuses to open. The tag makes a value that was sealed with another key, or
+ * altered since it was written, refuse to open rather than return bytes.</p>
+ *
+ * <p>The secret is never used as is. Two subkeys are derived from it under fixed labels: one is the AES key,
+ * and one yields the key id, so the key id carries no material of the AES key.</p>
  */
 final class AesGcmStringEncryptor implements StringEncryptor {
 
     /** Marks a value stored in this format. It sits outside the Base64 alphabet, so routing is decidable. */
     static final String MARKER = "v2:";
+
+    /** Ends the key id. Neither the hex key id nor the Base64 alphabet holds it. */
+    static final char KEY_ID_SEPARATOR = ':';
 
     /** A secret carrying this prefix is raw key material. Without it, the secret is a passphrase. */
     static final String RAW_KEY_PREFIX = "base64:";
@@ -36,23 +46,37 @@ final class AesGcmStringEncryptor implements StringEncryptor {
     /** The length raw key material must decode to. */
     static final int KEY_LENGTH_BYTES = 32;
 
+    /** The length of a key id, in bytes. It is written as twice as many lowercase hex characters. */
+    static final int KEY_ID_LENGTH_BYTES = 8;
+
     private static final String KEY_ALGORITHM = "AES";
     private static final String CIPHER_TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int IV_LENGTH_BYTES = 12;
     private static final int TAG_LENGTH_BITS = 128;
 
     private static final String DERIVATION_ALGORITHM = "PBKDF2WithHmacSHA256";
-    private static final int DERIVATION_ITERATIONS = 210000;
+    // OWASP Password Storage Cheat Sheet, PBKDF2-HMAC-SHA256.
+    private static final int DERIVATION_ITERATIONS = 600000;
     private static final int SALT_LENGTH_BYTES = 16;
 
     /** Keeps the salt of this derivation apart from any other use of the same passphrase. */
     private static final byte[] SALT_LABEL = "jahia-commons.encryptor.v2".getBytes(StandardCharsets.UTF_8);
 
+    private static final String SUBKEY_ALGORITHM = "HmacSHA256";
+    private static final String ENCRYPTION_LABEL = "jahia-commons.encryptor.v2.encryption";
+    private static final String KEY_ID_LABEL = "jahia-commons.encryptor.v2.key-id";
+
+    private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
+
     private final SecretKey key;
+    private final String keyId;
+    private final String prefix;
     private final SecureRandom random = new SecureRandom();
 
-    private AesGcmStringEncryptor(SecretKey key) {
-        this.key = key;
+    private AesGcmStringEncryptor(byte[] keyMaterial) {
+        this.key = new SecretKeySpec(subkey(keyMaterial, ENCRYPTION_LABEL), KEY_ALGORITHM);
+        this.keyId = keyIdOfMaterial(keyMaterial);
+        this.prefix = MARKER + keyId + KEY_ID_SEPARATOR;
     }
 
     /**
@@ -65,7 +89,44 @@ final class AesGcmStringEncryptor implements StringEncryptor {
      *             {@link #KEY_LENGTH_BYTES} bytes
      */
     static AesGcmStringEncryptor forSecret(String secret) {
-        return new AesGcmStringEncryptor(new SecretKeySpec(keyMaterialOf(secret), KEY_ALGORITHM));
+        return new AesGcmStringEncryptor(keyMaterialOf(secret));
+    }
+
+    /**
+     * @param secret raw key material when it carries {@link #RAW_KEY_PREFIX}, a passphrase otherwise
+     * @return the key id a value sealed under that secret carries
+     * @throws IllegalArgumentException on the same secrets {@link #forSecret(String)} refuses
+     */
+    static String keyIdOf(String secret) {
+        return keyIdOfMaterial(keyMaterialOf(secret));
+    }
+
+    /**
+     * @param value a stored value
+     * @return the key id the value names, or null when the value carries no marker or no well-formed key id
+     */
+    static String keyIdIn(String value) {
+        if (value == null || !value.startsWith(MARKER)) {
+            return null;
+        }
+        int end = MARKER.length() + KEY_ID_LENGTH_BYTES * 2;
+        if (value.length() <= end || value.charAt(end) != KEY_ID_SEPARATOR) {
+            return null;
+        }
+        String keyId = value.substring(MARKER.length(), end);
+        for (int i = 0; i < keyId.length(); i++) {
+            if (Character.digit(keyId.charAt(i), 16) < 0 || Character.isUpperCase(keyId.charAt(i))) {
+                return null;
+            }
+        }
+        return keyId;
+    }
+
+    /**
+     * @return the key id every value this encryptor seals carries
+     */
+    String getKeyId() {
+        return keyId;
     }
 
     @Override
@@ -78,10 +139,11 @@ final class AesGcmStringEncryptor implements StringEncryptor {
         try {
             Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_LENGTH_BITS, iv));
+            cipher.updateAAD(prefix.getBytes(StandardCharsets.US_ASCII));
             byte[] sealed = cipher.doFinal(message.getBytes(StandardCharsets.UTF_8));
             byte[] envelope = Arrays.copyOf(iv, iv.length + sealed.length);
             System.arraycopy(sealed, 0, envelope, iv.length, sealed.length);
-            return MARKER + Base64.getEncoder().encodeToString(envelope);
+            return prefix + Base64.getEncoder().encodeToString(envelope);
         } catch (GeneralSecurityException e) {
             throw new EncryptionOperationNotPossibleException(e);
         }
@@ -97,6 +159,7 @@ final class AesGcmStringEncryptor implements StringEncryptor {
             Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, key,
                     new GCMParameterSpec(TAG_LENGTH_BITS, envelope, 0, IV_LENGTH_BYTES));
+            cipher.updateAAD(prefix.getBytes(StandardCharsets.US_ASCII));
             byte[] plain = cipher.doFinal(envelope, IV_LENGTH_BYTES, envelope.length - IV_LENGTH_BYTES);
             return new String(plain, StandardCharsets.UTF_8);
         } catch (GeneralSecurityException e) {
@@ -105,13 +168,14 @@ final class AesGcmStringEncryptor implements StringEncryptor {
         }
     }
 
-    private static byte[] envelopeOf(String encryptedMessage) {
-        if (!encryptedMessage.startsWith(MARKER)) {
-            throw new EncryptionOperationNotPossibleException("The value carries no " + MARKER + " marker.");
+    private byte[] envelopeOf(String encryptedMessage) {
+        if (!encryptedMessage.startsWith(prefix)) {
+            throw new EncryptionOperationNotPossibleException("The value does not open with " + prefix
+                    + ", which every value sealed under this key does.");
         }
         byte[] envelope;
         try {
-            envelope = Base64.getDecoder().decode(encryptedMessage.substring(MARKER.length()));
+            envelope = Base64.getDecoder().decode(encryptedMessage.substring(prefix.length()));
         } catch (IllegalArgumentException e) {
             throw new EncryptionOperationNotPossibleException(e);
         }
@@ -121,6 +185,33 @@ final class AesGcmStringEncryptor implements StringEncryptor {
                     + " bytes, and an initialization vector and a tag need " + shortest + ".");
         }
         return envelope;
+    }
+
+    private static String keyIdOfMaterial(byte[] keyMaterial) {
+        byte[] id = Arrays.copyOf(subkey(keyMaterial, KEY_ID_LABEL), KEY_ID_LENGTH_BYTES);
+        char[] hex = new char[id.length * 2];
+        for (int i = 0; i < id.length; i++) {
+            hex[i * 2] = HEX_DIGITS[(id[i] >> 4) & 0xf];
+            hex[i * 2 + 1] = HEX_DIGITS[id[i] & 0xf];
+        }
+        return new String(hex);
+    }
+
+    /**
+     * One block of the NIST SP 800-108 counter-mode KDF with HMAC-SHA256: the counter 1, the label, a zero
+     * byte, an empty context, and the output length in bits.
+     */
+    private static byte[] subkey(byte[] keyMaterial, String label) {
+        byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer input = ByteBuffer.allocate(4 + labelBytes.length + 1 + 4);
+        input.putInt(1).put(labelBytes).put((byte) 0).putInt(KEY_LENGTH_BYTES * Byte.SIZE);
+        try {
+            Mac mac = Mac.getInstance(SUBKEY_ALGORITHM);
+            mac.init(new SecretKeySpec(keyMaterial, SUBKEY_ALGORITHM));
+            return mac.doFinal(input.array());
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Cannot derive a subkey with " + SUBKEY_ALGORITHM + ".", e);
+        }
     }
 
     private static byte[] keyMaterialOf(String secret) {
