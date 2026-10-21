@@ -387,20 +387,11 @@ public final class EncryptionUtils {
         String legacySecret = legacyPassword != null ? legacyPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
                 legacySecretDefault);
-        List<String> readOnlySecrets = previousPasswords != null ? previousPasswords :
-            ConfigurationUtils.getConfigValues(ENCRYPTOR_PREVIOUS_ENV_PREFIX, ENCRYPTOR_PREVIOUS_PROP_PREFIX);
         // The tokens name the keys that read what is already stored. Sealing under one, or opening marked
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
-        for (String readOnlySecret : readOnlySecrets) {
-            if (readOnlySecret == null || readOnlySecret.trim().isEmpty()) {
-                // The configuration route treats a blank value as unset, so only an argument reaches this.
-                throw new IllegalArgumentException("A read-only key, as " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
-                        + "<n> names one, cannot be null or blank.");
-            }
-            refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
-        }
+        List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -419,21 +410,44 @@ public final class EncryptionUtils {
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
         KeyRing ring = ownSecret == null ? null : new KeyRing(ownSecret, readOnlySecrets);
-        if (ring == null && !readOnlySecrets.isEmpty()) {
+        reportKeys(ownSecret, readOnlySecrets, usingDefaultKey);
+        StringEncryptor writer = ring != null ? ring.primary() : legacyReader;
+        return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
+    }
+
+    /**
+     * @param previousPasswords the read-only keys an application passes, or null to read them from the
+     *            configuration
+     * @return the read-only keys, each checked to be a key
+     */
+    private static List<String> readOnlySecretsOf(List<String> previousPasswords) {
+        List<String> readOnlySecrets = previousPasswords != null ? previousPasswords :
+            ConfigurationUtils.getConfigValues(ENCRYPTOR_PREVIOUS_ENV_PREFIX, ENCRYPTOR_PREVIOUS_PROP_PREFIX);
+        for (String readOnlySecret : readOnlySecrets) {
+            if (readOnlySecret == null || readOnlySecret.trim().isEmpty()) {
+                // The configuration route treats a blank value as unset, so only an argument reaches this.
+                throw new IllegalArgumentException("A read-only key, as " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
+                        + "<n> names one, cannot be null or blank.");
+            }
+            refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
+        }
+        return readOnlySecrets;
+    }
+
+    private static void reportKeys(String ownSecret, List<String> readOnlySecrets, boolean usingDefaultKey) {
+        if (ownSecret == null && !readOnlySecrets.isEmpty()) {
             reportUnusedReadOnlyKeysOnce();
         }
-        if (ring != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
+        if (ownSecret != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
             reportPassphraseOnce();
         }
-        StringEncryptor writer = ring != null ? ring.primary() : legacyReader;
         if (usingDefaultKey) {
             reportDefaultKeyOnce();
-        } else if (ring == null) {
+        } else if (ownSecret == null) {
             // The key is this installation's own, and it reads the stored values rather than sealing new
             // ones. A node of a cluster reaches this when the key reached its peers and not this node.
             reportEarlierFormatOnce();
         }
-        return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
     }
 
     private static void refuseToken(String secret, String property) {

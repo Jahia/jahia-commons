@@ -59,8 +59,8 @@ import java.util.TreeMap;
 public final class ConfigurationUtils {
 
     /** Orders numeric suffixes by their value, and two spellings of one value by their text. */
-    private static final Comparator<String> BY_NUMBER =
-            Comparator.comparing((String suffix) -> new BigInteger(suffix)).thenComparing(Comparator.naturalOrder());
+    private static final Comparator<String> BY_VALUE = Comparator.comparing(BigInteger::new);
+    private static final Comparator<String> BY_NUMBER = BY_VALUE.thenComparing(Comparator.naturalOrder());
 
     /**
      * Gets configuration value from environment variable, system property, or default value.
