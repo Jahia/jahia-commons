@@ -37,6 +37,7 @@ public class KeyRotationTest {
     private static final String VALUE = "value-under-a-site-key";
 
     // Produced by jasypt 1.9.3 outside this codebase, under the password shipped with this library.
+    private static final String EARLIER_VALUE = "value-from-an-earlier-version";
     private static final String EARLIER_ENVELOPE = "j+9rrpqFfEUdZiep6qzPj5Et7spc49pWmeG/3LbZZ5xxtWwQsj9NbA==";
 
     @Before
@@ -143,9 +144,45 @@ public class KeyRotationTest {
         assertTrue("A value under a key the ring does not hold", EncryptionUtils.needsReseal(underKey3));
         assertTrue("A marked value without a key id", EncryptionUtils.needsReseal("v2:AAAA"));
 
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        assertTrue("An unmarked value once its reader is closed", EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
+
         EncryptionUtils.initializeEncryptor(null, null, null, true);
         assertFalse("Without a key of the installation's own, a reseal writes the same format",
                 EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
+    }
+
+    /**
+     * The life of an installation that upgrades: the legacy reader opens the unmarked values beside a ring
+     * that holds a read-only key, a reseal moves every value under the primary key, and the legacy reader
+     * and the read-only key are then retired.
+     */
+    @Test
+    public void unmarkedAndReadOnlyValuesAreResealedThenTheirReadersAreRetired() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+        assertTrue(EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
+        assertTrue(EncryptionUtils.needsReseal(underKey1));
+
+        String resealedEarlier =
+                EncryptionUtils.passwordBaseEncrypt(EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+        String resealedUnderKey1 = EncryptionUtils.passwordBaseEncrypt(EncryptionUtils.passwordBaseDecrypt(underKey1));
+        assertTrue(resealedEarlier.startsWith("v2:" + KEY_ID_2 + ":"));
+        assertTrue(resealedUnderKey1.startsWith("v2:" + KEY_ID_2 + ":"));
+        assertFalse(EncryptionUtils.needsReseal(resealedEarlier));
+        assertFalse(EncryptionUtils.needsReseal(resealedUnderKey1));
+
+        EncryptionUtils.initializeEncryptor(KEY_2, emptyList(), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(resealedEarlier));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(resealedUnderKey1));
+        refusesNaming(EARLIER_ENVELOPE, EncryptionUtils.NO_KEY_TOKEN);
+        refusesNaming(underKey1, KEY_ID_1);
+        assertTrue("A value left behind is still counted", EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
     }
 
     @Test
