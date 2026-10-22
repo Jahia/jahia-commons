@@ -104,8 +104,9 @@ public class KeyRotationTest {
      */
     @Test
     public void readOnlyKeysWithoutALegacyPasswordAreRefused() {
+        List<String> earlierPassword = singletonList(EARLIER_PASSWORD);
         try {
-            EncryptionUtils.initializeEncryptor(KEY_2, singletonList(EARLIER_PASSWORD), null, null, true);
+            EncryptionUtils.initializeEncryptor(KEY_2, earlierPassword, null, null, true);
             fail("Read-only keys without a legacy password should be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
@@ -113,7 +114,7 @@ public class KeyRotationTest {
         }
 
         System.setProperty(LEGACY_PASSWORD_PROP, EARLIER_PASSWORD);
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(EARLIER_PASSWORD), null, null, true);
+        EncryptionUtils.initializeEncryptor(KEY_2, earlierPassword, null, null, true);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(UNDER_EARLIER_PASSWORD));
     }
 
