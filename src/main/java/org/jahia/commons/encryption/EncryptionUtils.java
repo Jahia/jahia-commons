@@ -51,7 +51,6 @@ import org.jasypt.digest.PooledStringDigester;
 import org.jasypt.digest.StringDigester;
 import org.jasypt.encryption.StringEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
-import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
 
 /**
  * Miscellaneous encryption utilities.
@@ -252,6 +251,14 @@ public final class EncryptionUtils {
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
      *
+     * <p>Each passphrase, as the primary key or as a read-only key, is stretched once when the encryptor is
+     * built, which takes about half a second per key. Call this method at startup so that the first
+     * encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
+     *
+     * <p>Read-only keys open values carrying the format marker only. A value carrying no marker is read with
+     * the legacy password, so the password that wrote such values is named there, and this method refuses
+     * read-only keys when no legacy password is named, by the argument or by the configuration.</p>
+     *
      * @param password the encryption password, which seals every new value (optional, will use
      *            config/default if null)
      * @param previousPasswords the passwords that only read values carrying the format marker, each found by
@@ -264,7 +271,8 @@ public final class EncryptionUtils {
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
-     *             if one key is named twice, or if a token is set where it is not read
+     *             if one key is named twice, if a token is set where it is not read, or if read-only keys are
+     *             named and no legacy password is
      */
     public static void initializeEncryptor(String password, List<String> previousPasswords, String algorithm,
             String legacyPassword, boolean force) {
@@ -281,11 +289,11 @@ public final class EncryptionUtils {
      * can count such values, and seal each one again by reading it and writing it back. The answer comes
      * from the format of the value alone: nothing is decrypted.
      *
-     * @param value a stored value
      * <p>A value that names a key the ring does not hold, and a value carrying no marker once the reader of
-     * that format is closed, answer true as well, and reading them is refused. A reseal therefore expects a
-     * refusal, and counts such a value rather than stops on it.</p>
+     * that format is closed, answer true as well, and reading them is refused. A reseal therefore checks
+     * {@link #canDecrypt(String)} first, and reports a value it cannot read rather than retries it.</p>
      *
+     * @param value a stored value
      * @return true when the value carries no format marker, or names a key other than the one that seals new
      *         values; false for null, and for every value when no key of this installation's own seals new
      *         values, because sealing again would write the format the value already has
@@ -293,6 +301,22 @@ public final class EncryptionUtils {
     public static boolean needsReseal(String value) {
         StringEncryptor current = getStringEncryptor();
         return current instanceof VersionedStringEncryptor && ((VersionedStringEncryptor) current).needsReseal(value);
+    }
+
+    /**
+     * Reports whether this installation holds the key a stored value names, so that a reseal can tell a
+     * value still to seal again from a value it can no longer read. The answer comes from the format of the
+     * value alone: nothing is decrypted, so a value that answers true is still refused when it was altered.
+     *
+     * @param value a stored value
+     * @return false for a value carrying the format marker and no key id, for a key id the ring does not
+     *         hold, for a marked value when no key of this installation's own is set, and for a value carrying
+     *         no marker once {@link #NO_KEY_TOKEN} closes the reader of that format; true otherwise, null
+     *         included
+     */
+    public static boolean canDecrypt(String value) {
+        StringEncryptor current = getStringEncryptor();
+        return !(current instanceof VersionedStringEncryptor) || ((VersionedStringEncryptor) current).canDecrypt(value);
     }
 
     /**
@@ -384,14 +408,16 @@ public final class EncryptionUtils {
         // the shipped one when it configured none. A password the application supplies is not visible here,
         // so an application that supplies one names this key itself.
         String legacySecretDefault = configuredSecret != null ? configuredSecret : DEFAULT_PASSWORD;
-        String legacySecret = legacyPassword != null ? legacyPassword :
-            ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP,
-                legacySecretDefault);
+        String configuredLegacySecret =
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP, null);
+        String namedLegacySecret = legacyPassword != null ? legacyPassword : configuredLegacySecret;
+        String legacySecret = namedLegacySecret != null ? namedLegacySecret : legacySecretDefault;
         // The tokens name the keys that read what is already stored. Sealing under one, or opening marked
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
+        refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -432,6 +458,21 @@ public final class EncryptionUtils {
             refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
         }
         return readOnlySecrets;
+    }
+
+    /**
+     * A rotation moves the old password to a read-only key, and read-only keys open marked values only. The
+     * default of the legacy key would then follow the new password, which reads every unmarked value under
+     * the wrong key, so the legacy key is named whenever read-only keys are.
+     */
+    private static void refuseReadOnlyKeysWithoutALegacyKey(List<String> readOnlySecrets, String namedLegacySecret) {
+        if (!readOnlySecrets.isEmpty() && namedLegacySecret == null) {
+            throw new IllegalArgumentException("Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
+                    + "<n>, and they open values carrying the " + AesGcmStringEncryptor.MARKER + " marker only. "
+                    + "Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " to the password that wrote the values carrying "
+                    + "no marker: '" + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password when one "
+                    + "was, or '" + NO_KEY_TOKEN + "' when no such value is left.");
+        }
     }
 
     private static void reportKeys(String ownSecret, List<String> readOnlySecrets, boolean usingDefaultKey) {
@@ -513,7 +554,10 @@ public final class EncryptionUtils {
                             + "hard to guess. Prefer a key of 32 random bytes, set as '"
                             + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
                             + "'openssl rand -base64 32' produces. Keep the passphrase as "
-                            + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> until every value is sealed again.");
+                            + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> until every value is sealed again. A read-only "
+                            + "key opens values carrying the " + AesGcmStringEncryptor.MARKER + " marker only, so "
+                            + "the password that wrote values carrying no marker goes in "
+                            + ENCRYPTOR_LEGACY_PASSWORD_PROP + ".");
         }
     }
 
@@ -537,10 +581,7 @@ public final class EncryptionUtils {
     }
 
     private static StringEncryptor jasyptEncryptor(String password, String algorithm) {
-        StandardPBEStringEncryptor encryptor = new StandardPBEStringEncryptor();
-        encryptor.setPassword(password);
-        encryptor.setAlgorithm(algorithm);
-        return encryptor;
+        return new JasyptStringEncryptor(password, algorithm);
     }
 
     private static void reportDefaultKeyOnce() {

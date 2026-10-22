@@ -45,7 +45,6 @@ package org.jahia.commons.encryption;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -57,10 +56,6 @@ import java.util.TreeMap;
  * @author Jahia Solutions Group SA
  */
 public final class ConfigurationUtils {
-
-    /** Orders numeric suffixes by their value, and two spellings of one value by their text. */
-    private static final Comparator<String> BY_VALUE = Comparator.comparing(BigInteger::new);
-    private static final Comparator<String> BY_NUMBER = BY_VALUE.thenComparing(Comparator.naturalOrder());
 
     /**
      * Gets configuration value from environment variable, system property, or default value.
@@ -90,34 +85,48 @@ public final class ConfigurationUtils {
 
     /**
      * Gets the values of a numbered family of keys, such as {@code PREFIX_1} and {@code prefix.1}, ordered by
-     * their number. A number is written in ASCII digits, and a number may be skipped, so removing one key
-     * leaves the others in place. When an environment variable and a system property carry the same
-     * suffix, the environment variable takes precedence, as {@link #getConfigValue} does for a single key.
-     * A blank value counts as unset.
+     * their number. A number is written in ASCII digits and read by its value, so {@code prefix.1} and
+     * {@code prefix.01} name the same number. A number may be skipped, so removing one key leaves the others
+     * in place. When an environment variable and a system property name the same number, the environment
+     * variable takes precedence, as {@link #getConfigValue} does for a single key. A blank value counts as
+     * unset.
      *
      * @param envPrefix the environment variable prefix, which the number follows
      * @param propPrefix the system property prefix, which the number follows
      * @return the values in ascending order of their number, empty when none is set
+     * @throws IllegalArgumentException if two environment variables, or two system properties, name the same
+     *             number in two spellings
      */
     public static List<String> getConfigValues(String envPrefix, String propPrefix) {
-        Map<String, String> bySuffix = new TreeMap<>(BY_NUMBER);
-        Properties properties = System.getProperties();
-        for (String name : properties.stringPropertyNames()) {
-            putIfNumbered(bySuffix, propPrefix, name, properties.getProperty(name));
-        }
-        for (Map.Entry<String, String> variable : System.getenv().entrySet()) {
-            putIfNumbered(bySuffix, envPrefix, variable.getKey(), variable.getValue());
-        }
-        return new ArrayList<>(bySuffix.values());
+        return getConfigValues(envPrefix, propPrefix, System.getenv(), System.getProperties());
     }
 
-    private static void putIfNumbered(Map<String, String> bySuffix, String prefix, String key, String value) {
+    static List<String> getConfigValues(String envPrefix, String propPrefix, Map<String, String> environment,
+            Properties properties) {
+        Map<BigInteger, String> fromProperties = new TreeMap<>();
+        for (String name : properties.stringPropertyNames()) {
+            putIfNumbered(fromProperties, propPrefix, name, properties.getProperty(name));
+        }
+        Map<BigInteger, String> fromEnvironment = new TreeMap<>();
+        for (Map.Entry<String, String> variable : environment.entrySet()) {
+            putIfNumbered(fromEnvironment, envPrefix, variable.getKey(), variable.getValue());
+        }
+        Map<BigInteger, String> byNumber = new TreeMap<>(fromProperties);
+        byNumber.putAll(fromEnvironment);
+        return new ArrayList<>(byNumber.values());
+    }
+
+    private static void putIfNumbered(Map<BigInteger, String> byNumber, String prefix, String key, String value) {
         if (!key.startsWith(prefix) || value == null || value.trim().isEmpty()) {
             return;
         }
         String suffix = key.substring(prefix.length());
-        if (!suffix.isEmpty() && suffix.chars().allMatch(c -> c >= '0' && c <= '9')) {
-            bySuffix.put(suffix, value);
+        if (suffix.isEmpty() || !suffix.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            return;
+        }
+        if (byNumber.put(new BigInteger(suffix), value) != null) {
+            throw new IllegalArgumentException(key + " names the number " + new BigInteger(suffix)
+                    + ", which another key spelt differently names too. Name each number once.");
         }
     }
 

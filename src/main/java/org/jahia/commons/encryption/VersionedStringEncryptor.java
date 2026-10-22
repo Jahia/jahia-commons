@@ -86,6 +86,21 @@ final class VersionedStringEncryptor implements StringEncryptor {
     }
 
     /**
+     * @param value a stored value
+     * @return whether a key that this encryptor holds is the one the value's format names
+     */
+    boolean canDecrypt(String value) {
+        if (value == null) {
+            return true;
+        }
+        if (!value.startsWith(AesGcmStringEncryptor.MARKER)) {
+            return legacyReader != null;
+        }
+        String keyId = AesGcmStringEncryptor.keyIdIn(value);
+        return ring != null && keyId != null && ring.forKeyId(keyId) != null;
+    }
+
+    /**
      * @return whether new values are written in the format every earlier version reads, which is the case
      *         whenever no key of this installation's own is available to seal them
      */

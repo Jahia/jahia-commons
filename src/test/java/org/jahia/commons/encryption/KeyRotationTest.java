@@ -39,6 +39,9 @@ public class KeyRotationTest {
     // Produced by jasypt 1.9.3 outside this codebase, under the password shipped with this library.
     private static final String EARLIER_VALUE = "value-from-an-earlier-version";
     private static final String EARLIER_ENVELOPE = "j+9rrpqFfEUdZiep6qzPj5Et7spc49pWmeG/3LbZZ5xxtWwQsj9NbA==";
+    // Produced the same way, under a password an installation set before it held a key of the marked format.
+    private static final String EARLIER_PASSWORD = "site-owned-key";
+    private static final String UNDER_EARLIER_PASSWORD = "7kcOkZ+19f6zRCgU6bo+c4JZa9UWfH6MmpnphkCHxTA=";
 
     @Before
     public void clearConfiguration() {
@@ -62,7 +65,8 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, null, true);
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertTrue(EncryptionUtils.needsReseal(underKey1));
         String resealed = EncryptionUtils.passwordBaseEncrypt(EncryptionUtils.passwordBaseDecrypt(underKey1));
@@ -86,10 +90,71 @@ public class KeyRotationTest {
         System.setProperty(PREVIOUS_PROP + "10", KEY_3);
         System.setProperty(PREVIOUS_PROP + "\u0662", EncryptionUtils.NO_KEY_TOKEN);
         System.setProperty(PASSWORD_PROP, KEY_2);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
         EncryptionUtils.initializeEncryptor(null, null, null, true);
 
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey3));
+    }
+
+    /**
+     * The rotation a passphrase is steered towards: a new primary key, and the earlier password as a
+     * read-only key. Read-only keys open marked values only, so without a legacy password the unmarked values
+     * would be read under the new primary key.
+     */
+    @Test
+    public void readOnlyKeysWithoutALegacyPasswordAreRefused() {
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_2, singletonList(EARLIER_PASSWORD), null, null, true);
+            fail("Read-only keys without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+
+        System.setProperty(LEGACY_PASSWORD_PROP, EARLIER_PASSWORD);
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(EARLIER_PASSWORD), null, null, true);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(UNDER_EARLIER_PASSWORD));
+    }
+
+    @Test
+    public void readOnlyKeysFromTheConfigurationWithoutALegacyPasswordAreRefused() {
+        System.setProperty(PASSWORD_PROP, KEY_2);
+        System.setProperty(PREVIOUS_PROP + "1", EARLIER_PASSWORD);
+        try {
+            EncryptionUtils.initializeEncryptor(null, null, null, true);
+            fail("Read-only keys without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+    }
+
+    @Test
+    public void canDecryptTruthTable() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
+        String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        assertTrue("Null", EncryptionUtils.canDecrypt(null));
+        assertTrue("An unmarked value", EncryptionUtils.canDecrypt(EARLIER_ENVELOPE));
+        assertTrue("A value under the primary key", EncryptionUtils.canDecrypt(underKey2));
+        assertTrue("A value under a read-only key", EncryptionUtils.canDecrypt(underKey1));
+        assertFalse("A value under a key the ring does not hold", EncryptionUtils.canDecrypt(underKey3));
+        assertFalse("A marked value without a key id", EncryptionUtils.canDecrypt("v2:AAAA"));
+
+        EncryptionUtils.initializeEncryptor(KEY_2, emptyList(), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        assertFalse("An unmarked value once its reader is closed", EncryptionUtils.canDecrypt(EARLIER_ENVELOPE));
+        assertFalse("A value under a key dropped from the ring", EncryptionUtils.canDecrypt(underKey1));
+
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+        assertFalse("A marked value without a key of the installation's own", EncryptionUtils.canDecrypt(underKey2));
+        assertTrue("An unmarked value under the shipped password", EncryptionUtils.canDecrypt(EARLIER_ENVELOPE));
     }
 
     @Test
@@ -111,7 +176,8 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, null, true);
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
         String relabelled = underKey1.replace(KEY_ID_1, KEY_ID_2);
 
         refusesNaming(relabelled, null);
@@ -134,7 +200,8 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
         String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, null, true);
+        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
         String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         assertFalse("Null holds nothing to reseal", EncryptionUtils.needsReseal(null));
@@ -255,7 +322,7 @@ public class KeyRotationTest {
     private static void refusedAtInitializationNaming(String password, List<String> previous,
             String expected) {
         try {
-            EncryptionUtils.initializeEncryptor(password, previous, null, null, true);
+            EncryptionUtils.initializeEncryptor(password, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             if (expected != null) {
