@@ -241,6 +241,9 @@ public class VersionedEncryptionTest {
         assertEquals(1, reported.size());
         assertTrue("The shipped password should be the report, and got: " + reported.get(0),
                 reported.get(0).contains("shipped with this library"));
+        assertTrue("The report should send a cluster to the next key, and got: " + reported.get(0),
+                reported.get(0).contains("On a cluster, set the key as jahia-commons.encryptor.next on every node "
+                        + "first"));
     }
 
     @Test
@@ -333,6 +336,9 @@ public class VersionedEncryptionTest {
         assertEquals(1, reported.size());
         assertTrue("The report should name the raw key prefix, and got: " + reported.get(0),
                 reported.get(0).contains("base64:"));
+        assertTrue("The report should send a cluster to the next key, and got: " + reported.get(0),
+                reported.get(0).contains("On a cluster, set that key as jahia-commons.encryptor.next on every "
+                        + "node first"));
     }
 
     @Test
@@ -366,6 +372,8 @@ public class VersionedEncryptionTest {
                 report.contains("Once every node of a cluster holds it, move it on each node to " + PASSWORD_PROP));
         assertTrue("The report should say to leave the legacy password as it is, and got: " + report,
                 report.contains("leave " + LEGACY_PASSWORD_PROP + " as it is"));
+        assertFalse("A node with a key of its own is not sealing with the shipped password, and got: " + report,
+                report.contains("shipped with this library"));
     }
 
     /**
@@ -402,6 +410,11 @@ public class VersionedEncryptionTest {
         assertEquals("One report, and got: " + reported, 1, reported.size());
         assertTrue("The report should say when to set the password, and got: " + reported,
                 reported.get(0).contains("Once every node of a cluster holds it"));
+        // The report replaces the one of the shipped password, so a node that never takes the second step
+        // still says it seals with it.
+        assertTrue("The report should say new values use the shipped password, and got: " + reported,
+                reported.get(0).contains("Until then, new values are sealed with the password shipped with this "
+                        + "library"));
     }
 
     @Test

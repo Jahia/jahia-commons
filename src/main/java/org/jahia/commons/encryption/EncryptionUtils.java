@@ -477,7 +477,8 @@ public final class EncryptionUtils {
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         String nextSecret = nextSecretOf(nextPassword);
-        refuseOpeningKeysWithoutALegacyKey(nextSecret, readOnlySecrets, namedLegacySecret, ownSecret);
+        refuseOpeningKeysWithoutALegacyKey(nextSecret, readOnlySecrets, namedLegacySecret, ownSecret,
+                configuredSecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -549,7 +550,7 @@ public final class EncryptionUtils {
      * therefore named whenever either is set, from the first step, so that the second one only moves keys.
      */
     private static void refuseOpeningKeysWithoutALegacyKey(String nextSecret, List<String> readOnlySecrets,
-            String namedLegacySecret, String ownSecret) {
+            String namedLegacySecret, String ownSecret, String configuredSecret) {
         if ((nextSecret == null && readOnlySecrets.isEmpty()) || namedLegacySecret != null) {
             return;
         }
@@ -565,22 +566,30 @@ public final class EncryptionUtils {
         String values = "'" + SHIPPED_KEY_TOKEN + "' when none was set, " + (ownSecret == null
                 ? "or the earlier password when one was"
                 : "the earlier password when one was, or '" + NO_KEY_TOKEN + "' when no such value is left");
-        // With a password set, a key has already moved to it, and the default reads under it now.
-        String defaultFollows = ownSecret == null
-                ? "Once a key moves to " + ENCRYPTOR_PASSWORD_PROP + ", the default of "
-                        + ENCRYPTOR_LEGACY_PASSWORD_PROP + " would follow it."
-                : "The default of " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " follows " + ENCRYPTOR_PASSWORD_PROP
-                        + " now, and would read every value carrying no marker under it.";
+        // The default the configuration resolves to, as createEncryptor computes it.
+        String defaultKey = configuredSecret != null ? "the configured " + ENCRYPTOR_PASSWORD_PROP
+                : "the shipped password";
+        StringBuilder reason = new StringBuilder();
+        if (nextSecret != null) {
+            reason.append(" The key in ").append(ENCRYPTOR_NEXT_PROP).append(" moves to ")
+                    .append(ENCRYPTOR_PASSWORD_PROP).append(" at the next step, and the default follows a configured ")
+                    .append(ENCRYPTOR_PASSWORD_PROP).append(", so it would then read them under that key.");
+        }
+        if (!readOnlySecrets.isEmpty()) {
+            reason.append(" The keys in ").append(ENCRYPTOR_PREVIOUS_PROP_PREFIX).append("<n> are earlier keys, so ")
+                    .append("the key that wrote those values has to be named.");
+        }
         throw new IllegalArgumentException(which + " set, and these keys open values carrying the "
-                + AesGcmStringEncryptor.MARKER + " marker only. " + defaultFollows + " Set "
-                + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the password that wrote the values carrying no marker: "
-                + values + ".");
+                + AesGcmStringEncryptor.MARKER + " marker only. Values carrying no marker are read with "
+                + ENCRYPTOR_LEGACY_PASSWORD_PROP + ", which is not set, so today they are read under " + defaultKey
+                + "." + reason + " Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the password that wrote the "
+                + "values carrying no marker: " + values + ".");
     }
 
     private static void reportKeys(String ownSecret, String nextSecret, List<String> readOnlySecrets,
             boolean usingDefaultKey) {
         if (nextSecret != null) {
-            reportNextKeyOnce();
+            reportNextKeyOnce(usingDefaultKey);
         } else if (ownSecret == null && !readOnlySecrets.isEmpty()) {
             reportReadOnlyKeysAloneOnce();
         }
@@ -670,7 +679,8 @@ public final class EncryptionUtils {
                     ENCRYPTOR_PASSWORD_PROP + " holds a passphrase, and a passphrase is only as strong as it is "
                             + "hard to guess. Prefer a key of 32 random bytes, set as '"
                             + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
-                            + "'openssl rand -base64 32' produces. Keep the passphrase as "
+                            + "'openssl rand -base64 32' produces. On a cluster, set that key as "
+                            + ENCRYPTOR_NEXT_PROP + " on every node first. Keep the passphrase as "
                             + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> until every value is sealed again. A read-only "
                             + "key opens values carrying the " + AesGcmStringEncryptor.MARKER + " marker only, so "
                             + "the password that wrote values carrying no marker goes in "
@@ -701,14 +711,17 @@ public final class EncryptionUtils {
         }
     }
 
-    private static void reportNextKeyOnce() {
+    private static void reportNextKeyOnce(boolean usingDefaultKey) {
         if (NEXT_KEY_REPORTED.compareAndSet(false, true)) {
+            // This report replaces the one of the shipped password, so it carries that signal too.
+            String sealing = usingDefaultKey ? " Until then, new values are sealed with the password shipped "
+                    + "with this library." : "";
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
                     ENCRYPTOR_NEXT_PROP + " holds a key that reads values carrying the "
                             + AesGcmStringEncryptor.MARKER + " marker and seals none. Once every node of a "
                             + "cluster holds it, move it on each node to " + ENCRYPTOR_PASSWORD_PROP + ", move "
                             + "the key that property held, if any, to " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
-                            + "<n>, and leave " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " as it is.");
+                            + "<n>, and leave " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " as it is." + sealing);
         }
     }
 
@@ -731,7 +744,8 @@ public final class EncryptionUtils {
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
                 "New values are sealed with the password shipped with this library. Set "
                     + ENCRYPTOR_PASSWORD_PROP + ", or the " + ENCRYPTOR_PASSWORD_ENV + " environment variable,"
-                    + " to a password belonging to this installation.");
+                    + " to a password belonging to this installation. On a cluster, set the key as "
+                    + ENCRYPTOR_NEXT_PROP + " on every node first.");
         }
     }
 

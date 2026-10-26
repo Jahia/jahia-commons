@@ -156,10 +156,14 @@ public class KeyConfigurationScenariosTest {
 
     private void check(Setup setup, List<String> mismatches) {
         String refusal = refusalOf(setup);
-        String expected = setup.refusingRule();
-        if (expected == null ? refusal != null : refusal == null || !refusal.contains(expected)) {
-            mismatches.add(setup + ": expected " + (expected == null ? "a start" : "the refusal '" + expected + "'")
-                    + ", got " + (refusal == null ? "a start" : "the refusal '" + refusal + "'"));
+        List<String> expected = setup.refusalPhrases();
+        List<String> forbidden = setup.forbiddenRefusalPhrases();
+        boolean matches = expected.isEmpty() ? refusal == null
+                : refusal != null && expected.stream().allMatch(refusal::contains)
+                        && forbidden.stream().noneMatch(refusal::contains);
+        if (!matches) {
+            mismatches.add(setup + ": expected " + (expected.isEmpty() ? "a start" : "a refusal naming " + expected
+                    + " and not " + forbidden) + ", got " + (refusal == null ? "a start" : "'" + refusal + "'"));
             return;
         }
         if (refusal != null) {
@@ -375,16 +379,40 @@ public class KeyConfigurationScenariosTest {
          * A next key and read-only keys need a named legacy password, and closing its reader needs a key that
          * seals.
          *
-         * @return a phrase of the message of the rule that refuses the setup, or null when it starts
+         * @return phrases the message of the rule that refuses the setup carries: the properties it names, and
+         *         '__none__' when a password lets it be offered; empty when the setup starts
          */
-        String refusingRule() {
-            if ((next != null || !previous.isEmpty()) && legacy == null) {
-                return "Set " + LEGACY_PASSWORD_PROP + " now";
+        List<String> refusalPhrases() {
+            if (isRefusedForTheLegacyPassword()) {
+                List<String> phrases = new ArrayList<>();
+                phrases.add("Set " + LEGACY_PASSWORD_PROP + " now");
+                if (previous.isEmpty()) {
+                    phrases.add(NEXT_PROP + " is set");
+                } else if (next == null) {
+                    phrases.add(PREVIOUS_PROP + "<n> is set");
+                } else {
+                    phrases.add(NEXT_PROP + " and " + PREVIOUS_PROP + "<n> are set");
+                }
+                if (password != null) {
+                    phrases.add("'" + NONE + "'");
+                }
+                return phrases;
             }
             if (NONE.equals(legacy) && password == null) {
-                return "closes the reader of values carrying no format marker";
+                return singletonList("closes the reader of values carrying no format marker");
             }
-            return null;
+            return emptyList();
+        }
+
+        /**
+         * @return phrases the refusal must not carry: '__none__' without a password, which would refuse it
+         */
+        List<String> forbiddenRefusalPhrases() {
+            return isRefusedForTheLegacyPassword() && password == null ? singletonList("'" + NONE + "'") : emptyList();
+        }
+
+        private boolean isRefusedForTheLegacyPassword() {
+            return (next != null || !previous.isEmpty()) && legacy == null;
         }
 
         /**

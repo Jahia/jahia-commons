@@ -412,18 +412,33 @@ public class KeyRotationTest {
     }
 
     /**
-     * Without a password, the default of the legacy key would follow a key once it moves there. With one, a
-     * key has already moved, and the default follows it now.
+     * The refusal names the key the default of the legacy password resolves to: the configured password, or
+     * the shipped one, whatever the application passes. It gives the reason by role: a next key moves to the
+     * password, and read-only keys are earlier keys.
      */
     @Test
-    public void theRefusalOfAMissingLegacyPasswordSaysWhenTheDefaultFollowsThePassword() {
+    public void theRefusalOfAMissingLegacyPasswordNamesTheDefaultAndTheReason() {
         List<String> aReadOnlyKey = singletonList(KEY_3);
-        String now = "The default of " + LEGACY_PASSWORD_PROP + " follows " + PASSWORD_PROP + " now";
-        String later = "Once a key moves to " + PASSWORD_PROP;
-        assertTrue("A read-only key and a password", refusalOf(KEY_2, null, aReadOnlyKey).contains(now));
-        assertTrue("A next key and a password", refusalOf(KEY_2, KEY_1, emptyList()).contains(now));
-        assertTrue("A next key, no password", refusalOf(null, KEY_1, emptyList()).contains(later));
-        assertTrue("A read-only key, no password", refusalOf(null, null, aReadOnlyKey).contains(later));
+        String configured = "today they are read under the configured " + PASSWORD_PROP + ".";
+        String shipped = "today they are read under the shipped password.";
+        String nextReason = "The key in " + NEXT_PROP + " moves to " + PASSWORD_PROP + " at the next step";
+        String earlierReason = "The keys in " + PREVIOUS_PROP + "<n> are earlier keys";
+
+        // The first step of a rotation: the default is the configured password, which is right until the move.
+        System.setProperty(PASSWORD_PROP, KEY_2);
+        String rotation = refusalOf(null, KEY_1, emptyList());
+        assertTrue(rotation, rotation.contains(configured) && rotation.contains(nextReason));
+        assertFalse(rotation, rotation.contains(earlierReason));
+        String both = refusalOf(null, KEY_1, aReadOnlyKey);
+        assertTrue(both, both.contains(configured) && both.contains(nextReason) && both.contains(earlierReason));
+        System.clearProperty(PASSWORD_PROP);
+
+        // A password the application passes is not the default: the shipped one is.
+        String passed = refusalOf(KEY_2, null, aReadOnlyKey);
+        assertTrue(passed, passed.contains(shipped) && passed.contains(earlierReason));
+        assertFalse(passed, passed.contains(nextReason));
+        String firstKey = refusalOf(null, KEY_1, emptyList());
+        assertTrue(firstKey, firstKey.contains(shipped) && firstKey.contains(nextReason));
     }
 
     private static String refusalOf(String password, String next, List<String> readOnlyKeys) {
