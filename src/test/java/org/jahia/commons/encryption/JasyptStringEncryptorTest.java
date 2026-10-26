@@ -1,9 +1,13 @@
 package org.jahia.commons.encryption;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.security.NoSuchAlgorithmException;
+
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
+import org.jasypt.exceptions.EncryptionInitializationException;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 import org.junit.Test;
 
@@ -43,6 +47,22 @@ public class JasyptStringEncryptorTest {
             } catch (EncryptionOperationNotPossibleException e) {
                 // refused, as every such read should be
             }
+        }
+    }
+
+    /**
+     * A caller reads the refusal of a value as a wrong key, so a configuration error has to reach it as
+     * something else, with its cause.
+     */
+    @Test
+    public void anUnknownAlgorithmIsReportedAsAConfigurationError() {
+        String sealed = new JasyptStringEncryptor("one-password", ALGORITHM).encrypt(VALUE);
+        try {
+            new JasyptStringEncryptor("one-password", "NoSuchAlgorithm").decrypt(sealed);
+            fail("An unknown algorithm should be refused");
+        } catch (EncryptionInitializationException e) {
+            assertTrue("The cause should be kept, and got: " + e.getCause(),
+                    e.getCause() instanceof NoSuchAlgorithmException);
         }
     }
 }
