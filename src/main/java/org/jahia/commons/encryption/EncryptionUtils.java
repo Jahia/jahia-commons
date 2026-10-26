@@ -344,10 +344,15 @@ public final class EncryptionUtils {
      * that format is closed, answer true as well, and reading them is refused. A reseal therefore checks
      * {@link #canDecrypt(String)} first, and reports a value it cannot read rather than retries it.</p>
      *
+     * <p>A value under the next key answers false: the nodes already promoted sealed it there, and sealing it
+     * again would move it back under the key they are retiring. A next key that is abandoned is therefore
+     * moved to {@code jahia-commons.encryptor.previous.<n>}, so that its values are counted again.</p>
+     *
      * @param value a stored value
      * @return true when the value carries no format marker, or names a key other than the one that seals new
-     *         values; false for null, and for every value when no key of this installation's own seals new
-     *         values, because sealing again would write the format the value already has
+     *         values and the next key; false for null, for a value under the next key, and for every value
+     *         when no primary key seals new values, because sealing again would write the format the value
+     *         already has
      */
     public static boolean needsReseal(String value) {
         StringEncryptor current = getStringEncryptor();
@@ -360,10 +365,9 @@ public final class EncryptionUtils {
      * value alone: nothing is decrypted, so a value that answers true is still refused when it was altered.
      *
      * @param value a stored value
-     * @return false for a value carrying the format marker and no key id, for a key id the ring does not
-     *         hold, for a marked value when no key of this installation's own is set, and for a value carrying
-     *         no marker once {@link #NO_KEY_TOKEN} closes the reader of that format; true otherwise, null
-     *         included
+     * @return false for a value carrying the format marker and no key id, for a key id that neither the
+     *         primary key, the next key nor a read-only key holds, and for a value carrying no marker once
+     *         {@link #NO_KEY_TOKEN} closes the reader of that format; true otherwise, null included
      */
     public static boolean canDecrypt(String value) {
         StringEncryptor current = getStringEncryptor();
@@ -394,7 +398,7 @@ public final class EncryptionUtils {
 
     /**
      * Reports whether new values are written in the format every earlier version reads, which is the case
-     * whenever this installation holds no key of its own.
+     * whenever {@code jahia-commons.encryptor.password} names no primary key, even when a next key is held.
      *
      * <p>This is the wider of the two questions, and the one a policy asks. {@link #isUsingDefaultKey()}
      * answers for the shipped key alone, so it reports false for an installation that names a key of the
@@ -402,7 +406,7 @@ public final class EncryptionUtils {
      * {@code jahia-commons.encryptor.password}: such an installation writes under a key nobody else holds,
      * and still writes it in a format that carries no marker and no authentication tag.</p>
      *
-     * @return true when no key of this installation's own seals new values
+     * @return true when no primary key seals new values
      */
     public static boolean isSealingInTheEarlierFormat() {
         StringEncryptor current = encryptorInstance;

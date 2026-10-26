@@ -237,6 +237,24 @@ public class KeyRotationTest {
         refusedWithNextKeyNaming(KEY_THE_PASSPHRASE_DERIVES, PASSPHRASE, emptyList(), "promoted");
     }
 
+    /**
+     * A read-only key that collides by key id with the next key, not with the primary key, is a key named
+     * twice and not a promotion.
+     */
+    @Test
+    public void aReadOnlyKeyDerivedFromTheNextPassphraseIsRefusedAsNamedTwice() {
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_1, PASSPHRASE, singletonList(KEY_THE_PASSPHRASE_DERIVES), null,
+                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            fail("Expected the configuration to be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should say named twice, and got: " + e.getMessage(),
+                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
+            assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
+                    e.getMessage().contains("next key and the primary key"));
+        }
+    }
+
     @Test
     public void theNextKeyNamedAgainAsReadOnlyIsRefused() {
         refusedWithNextKeyNaming(KEY_2, KEY_1, singletonList(KEY_1), "One key is named twice");
