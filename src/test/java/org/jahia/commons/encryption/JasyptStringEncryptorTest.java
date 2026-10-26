@@ -57,8 +57,9 @@ public class JasyptStringEncryptorTest {
     @Test
     public void anUnknownAlgorithmIsReportedAsAConfigurationError() {
         String sealed = new JasyptStringEncryptor("one-password", ALGORITHM).encrypt(VALUE);
+        JasyptStringEncryptor unknownAlgorithm = new JasyptStringEncryptor("one-password", "NoSuchAlgorithm");
         try {
-            new JasyptStringEncryptor("one-password", "NoSuchAlgorithm").decrypt(sealed);
+            unknownAlgorithm.decrypt(sealed);
             fail("An unknown algorithm should be refused");
         } catch (EncryptionInitializationException e) {
             assertTrue("The cause should be kept, and got: " + e.getCause(),
