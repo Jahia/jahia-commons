@@ -351,9 +351,33 @@ public class VersionedEncryptionTest {
                 report.contains("jahia-commons.encryptor.previous."));
         assertTrue("The report should say marked values are read under them, and got: " + report,
                 report.contains("marker are read under those keys"));
-        assertTrue("The report should say when to set the key as the password, and got: " + report,
-                report.contains("Once every node of a cluster holds the new key this way, set it as "
-                        + PASSWORD_PROP));
+        assertTrue("The report should name the next key for a key to take, and got: " + report,
+                report.contains("about to take goes in jahia-commons.encryptor.next"));
+    }
+
+    @Test
+    public void theNextKeyIsReportedWithTheStepThatPromotesIt() {
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, KEY_B, null, null,
+                null, true));
+
+        assertEquals("One report, and got: " + reported, 1, reported.size());
+        String report = reported.get(0);
+        assertTrue("The report should say when and where to move the key, and got: " + report,
+                report.contains("Once every node of a cluster holds it, move it on each node to " + PASSWORD_PROP));
+        assertTrue("The report should say to keep the legacy password, and got: " + report,
+                report.contains("keep " + LEGACY_PASSWORD_PROP + " set"));
+    }
+
+    @Test
+    public void aNodeWithANextKeyAloneIsNotReportedAsUnableToReadItsPeers() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null,
+                null, true));
+
+        assertFalse("The earlier-format report should not be drawn, and got: " + reported,
+                reported.stream().anyMatch(line -> line.contains("this node cannot read what they write")));
+        assertEquals("One report, and got: " + reported, 1, reported.size());
     }
 
     @Test

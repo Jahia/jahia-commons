@@ -57,7 +57,7 @@ final class VersionedStringEncryptor implements StringEncryptor {
             throw new EncryptionOperationNotPossibleException("The value carries the "
                     + AesGcmStringEncryptor.MARKER + " marker, and this installation has no key for that "
                     + "format. Set jahia-commons.encryptor.password to the key the value was sealed with, or "
-                    + "jahia-commons.encryptor.previous.<n> while a cluster takes that key.");
+                    + "jahia-commons.encryptor.next while a cluster takes that key.");
         }
         String keyId = AesGcmStringEncryptor.keyIdIn(encryptedMessage);
         if (keyId == null) {

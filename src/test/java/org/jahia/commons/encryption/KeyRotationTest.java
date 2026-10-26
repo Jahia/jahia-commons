@@ -23,6 +23,7 @@ public class KeyRotationTest {
     private static final String PASSWORD_PROP = "jahia-commons.encryptor.password";
     private static final String LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
     private static final String PREVIOUS_PROP = "jahia-commons.encryptor.previous.";
+    private static final String NEXT_PROP = "jahia-commons.encryptor.next";
 
     private static final String KEY_1 = "base64:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
     private static final String KEY_2 = "base64:ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4Q=";
@@ -47,6 +48,7 @@ public class KeyRotationTest {
     public void clearConfiguration() {
         System.clearProperty(PASSWORD_PROP);
         System.clearProperty(LEGACY_PASSWORD_PROP);
+        System.clearProperty(NEXT_PROP);
         for (int n = 0; n <= 12; n++) {
             System.clearProperty(PREVIOUS_PROP + n);
         }
@@ -222,40 +224,118 @@ public class KeyRotationTest {
 
     /**
      * A cluster on the shipped key takes its first key in two rolling restarts: every node first holds the
-     * key as a read-only key, then each node makes it the primary key. A node at either step reads what a
-     * node at the other step writes.
+     * key as the next key, then each node moves it to the password. A node at either step reads what a node
+     * at the other step writes. The first step needs no legacy password, and the second one names it, because
+     * its default would follow the new password.
      */
     @Test
     public void aClusterTakesItsFirstKeyWithEveryNodeReadingTheOthers() {
-        EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, null, true);
         String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertFalse("A node at the first step still writes the earlier format",
                 fromAFirstStepNode.startsWith("v2:"));
         assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
         assertFalse("Nothing is resealed while no key seals", EncryptionUtils.needsReseal(fromAFirstStepNode));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
 
-        EncryptionUtils.initializeEncryptor(KEY_1, emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        EncryptionUtils.initializeEncryptor(KEY_1, null, emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
         String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(fromAPromotedNode.startsWith("v2:" + KEY_ID_1 + ":"));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAFirstStepNode));
 
         // A node still at the first step, or rolled back to it.
-        EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, null, true);
         assertTrue(EncryptionUtils.canDecrypt(fromAPromotedNode));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAPromotedNode));
+    }
+
+    /**
+     * The same two steps replace a key: the next key reads what a promoted node seals, and the promoted node
+     * reads what the others still seal under the key it moved to the read-only keys.
+     */
+    @Test
+    public void aClusterRotatesItsKeyThroughTheNextKey() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String beforeTheRotation = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, null, true);
+        String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue("The next key seals nothing", fromAFirstStepNode.startsWith("v2:" + KEY_ID_1 + ":"));
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+
+        EncryptionUtils.initializeEncryptor(KEY_2, null, singletonList(KEY_1), null,
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue(fromAPromotedNode.startsWith("v2:" + KEY_ID_2 + ":"));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAFirstStepNode));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(beforeTheRotation));
+
+        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, null, true);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAPromotedNode));
     }
 
     @Test
+    public void theNextKeyComesFromTheConfiguration() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        System.setProperty(NEXT_PROP, KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
+    @Test
+    public void theNextKeyNamedAsThePasswordIsRefusedWithThePromotion() {
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_1, KEY_1, null, null, null, true);
+            fail("The next key named as the password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should say to remove the key from the next key, and got: " + e.getMessage(),
+                    e.getMessage().contains("remove it from there") && e.getMessage().contains(NEXT_PROP));
+        }
+    }
+
+    @Test
+    public void theNextKeyNamedAsAReadOnlyKeyIsRefused() {
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_2, KEY_1, singletonList(KEY_1), null,
+                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            fail("One key named as the next key and as a read-only key should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should say a key is named twice, and got: " + e.getMessage(),
+                    e.getMessage().contains("named twice"));
+        }
+    }
+
+    @Test
+    public void aTokenOrABlankValueIsRefusedAsTheNextKey() {
+        for (String notAKey : asList(EncryptionUtils.SHIPPED_KEY_TOKEN, EncryptionUtils.NO_KEY_TOKEN, " ")) {
+            try {
+                EncryptionUtils.initializeEncryptor(KEY_2, notAKey, null, null, null, true);
+                fail("'" + notAKey + "' should be refused as the next key");
+            } catch (IllegalArgumentException e) {
+                assertTrue("The message should name the next key, and got: " + e.getMessage(),
+                        e.getMessage().contains(NEXT_PROP));
+            }
+        }
+    }
+
+    /**
+     * Read-only keys alone open what they name, as the next key does, and refuse every other key.
+     */
+    @Test
     public void readOnlyKeysAloneRefuseAValueUnderAnotherKey() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
         String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
                 true);
 
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertFalse(EncryptionUtils.canDecrypt(underKey2));
         refusesNaming(underKey2, KEY_ID_2);
     }
