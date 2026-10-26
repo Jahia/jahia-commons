@@ -301,9 +301,10 @@ public final class EncryptionUtils {
      * the encryptor is built, which takes about half a second per key. Call this method at startup so that
      * the first encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
      *
-     * <p>Read-only keys open values carrying the format marker only. A value carrying no marker is read with
-     * the legacy password, so the password that wrote such values is named there, and this method refuses
-     * read-only keys when no legacy password is named, by the argument or by the configuration.</p>
+     * <p>Read-only keys and the next key open values carrying the format marker only. A value carrying no
+     * marker is read with the legacy password, so the password that wrote such values is named there, and this
+     * method refuses read-only keys and a next key when no legacy password is named, by the argument or by the
+     * configuration.</p>
      *
      * @param password the encryption password, which seals every new value (optional, will use
      *            config/default if null)
@@ -321,7 +322,8 @@ public final class EncryptionUtils {
      * @throws IllegalStateException if the encryptor is already initialized and force is false
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
      *             if one key is named twice, the next key as the encryption password included, if a token is
-     *             set where it is not read, or if read-only keys are named and no legacy password is
+     *             set where it is not read, or if read-only keys or a next key are named and no legacy password
+     *             is
      */
     public static void initializeEncryptor(String password, String nextPassword, List<String> previousPasswords,
             String algorithm, String legacyPassword, boolean force) {
@@ -467,12 +469,12 @@ public final class EncryptionUtils {
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
-        // The next key does not move the key that wrote the unmarked values, so it needs no legacy password.
         String nextSecret = nextPassword != null ? nextPassword :
             ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
+        refuseTheNextKeyWithoutALegacyKey(nextSecret, namedLegacySecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -534,6 +536,21 @@ public final class EncryptionUtils {
                     + "Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " to the password that wrote the values carrying "
                     + "no marker: '" + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password when one "
                     + "was, or '" + NO_KEY_TOKEN + "' when no such value is left.");
+        }
+    }
+
+    /**
+     * The next key is promoted to the encryption password, and the default of the legacy key follows that
+     * password, so the promotion would read every unmarked value under the wrong key. The legacy key is named
+     * while the next key is, so that it is in place before the promotion.
+     */
+    private static void refuseTheNextKeyWithoutALegacyKey(String nextSecret, String namedLegacySecret) {
+        if (nextSecret != null && namedLegacySecret == null) {
+            throw new IllegalArgumentException("A next key is set in " + ENCRYPTOR_NEXT_PROP + ", and once it is "
+                    + "promoted to " + ENCRYPTOR_PASSWORD_PROP + ", values carrying no marker would be read under "
+                    + "it. Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " to the password that wrote them first: '"
+                    + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password when one was, or '"
+                    + NO_KEY_TOKEN + "' when no such value is left.");
         }
     }
 

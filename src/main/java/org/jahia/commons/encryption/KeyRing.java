@@ -20,6 +20,7 @@ import java.util.Set;
 final class KeyRing {
 
     private final AesGcmStringEncryptor primary;
+    private final String nextKeyId;
     private final Map<String, AesGcmStringEncryptor> byKeyId;
 
     /**
@@ -30,23 +31,21 @@ final class KeyRing {
      *             the case when one key is named twice, once as a passphrase and once as the key it derives
      */
     KeyRing(String primarySecret, String nextSecret, List<String> readOnlySecrets) {
-        // The same secret written twice is caught here, before any passphrase is stretched.
-        if (primarySecret != null && primarySecret.equals(nextSecret)) {
-            throw promotedKeyLeftAsNext(null);
-        }
-        Set<String> secrets = new HashSet<>();
-        if (primarySecret != null) {
-            secrets.add(primarySecret);
-        }
+        // The next key comes first, so a collision on it can only be with the primary key: the key left in
+        // the next key after it was promoted.
         List<String> otherSecrets = new ArrayList<>();
         if (nextSecret != null) {
             otherSecrets.add(nextSecret);
         }
         otherSecrets.addAll(readOnlySecrets);
-        for (String secret : otherSecrets) {
-            if (!secrets.add(secret)) {
-                throw new IllegalArgumentException("One key is named twice. Name each key once, either as the "
-                        + "primary key, as the next key or as a read-only key.");
+        // The same secret written twice is caught here, before any passphrase is stretched.
+        Set<String> secrets = new HashSet<>();
+        if (primarySecret != null) {
+            secrets.add(primarySecret);
+        }
+        for (int i = 0; i < otherSecrets.size(); i++) {
+            if (!secrets.add(otherSecrets.get(i))) {
+                throw namedTwice(null, nextSecret != null && i == 0);
             }
         }
         primary = primarySecret != null ? AesGcmStringEncryptor.forSecret(primarySecret) : null;
@@ -54,25 +53,38 @@ final class KeyRing {
         if (primary != null) {
             keys.put(primary.getKeyId(), primary);
         }
-        for (String secret : otherSecrets) {
-            AesGcmStringEncryptor key = AesGcmStringEncryptor.forSecret(secret);
+        String firstKeyId = null;
+        for (int i = 0; i < otherSecrets.size(); i++) {
+            AesGcmStringEncryptor key = AesGcmStringEncryptor.forSecret(otherSecrets.get(i));
+            if (i == 0) {
+                firstKeyId = key.getKeyId();
+            }
             if (keys.putIfAbsent(key.getKeyId(), key) != null) {
-                if (secret.equals(nextSecret) && primary != null && primary.getKeyId().equals(key.getKeyId())) {
-                    throw promotedKeyLeftAsNext(key.getKeyId());
-                }
-                // A ring holding one key twice is a configuration that was not meant: the usual one is a
-                // primary key left in the read-only list after it was promoted.
-                throw new IllegalArgumentException("The key with id " + key.getKeyId() + " is named twice. "
-                        + "Name each key once, either as the primary key, as the next key or as a read-only key.");
+                throw namedTwice(key.getKeyId(), nextSecret != null && i == 0);
             }
         }
+        nextKeyId = nextSecret != null ? firstKeyId : null;
         byKeyId = Collections.unmodifiableMap(keys);
     }
 
-    private static IllegalArgumentException promotedKeyLeftAsNext(String keyId) {
-        return new IllegalArgumentException("The next key" + (keyId != null ? ", with id " + keyId + "," : "")
-                + " is also the primary key. Once a key is promoted to the primary key, remove it from the next "
-                + "key, and name the key it replaces as a read-only key.");
+    private static IllegalArgumentException namedTwice(String keyId, boolean theNextKeyIsThePrimaryKey) {
+        String key = keyId != null ? "The key with id " + keyId : "One key";
+        if (theNextKeyIsThePrimaryKey) {
+            return new IllegalArgumentException(key + " is both the next key and the primary key. Once a key is "
+                    + "promoted to the primary key, remove it from the next key, and name the key it replaces as a "
+                    + "read-only key.");
+        }
+        // A ring holding one key twice is a configuration that was not meant: the usual one is a primary key
+        // left in the read-only list after it was promoted.
+        return new IllegalArgumentException(key + " is named twice. Name each key once, either as the primary "
+                + "key, as the next key or as a read-only key.");
+    }
+
+    /**
+     * @return the key id of the key about to become the primary one, or null when none is named
+     */
+    String nextKeyId() {
+        return nextKeyId;
     }
 
     /**

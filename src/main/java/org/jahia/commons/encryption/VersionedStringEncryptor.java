@@ -78,15 +78,18 @@ final class VersionedStringEncryptor implements StringEncryptor {
 
     /**
      * @param value a stored value
-     * @return whether the value is not under the primary key: it carries no marker, or it names another key,
-     *         whether the ring holds that key or not. Always false when no key seals new values in the marked
+     * @return whether the value is not under the primary key: it carries no marker, or it names another key
+     *         than the next key, whether the ring holds that key or not. A value under the next key is left as
+     *         it is, because the nodes already promoted sealed it there, and sealing it again here would move
+     *         it back under the key they are retiring. Always false when no key seals new values in the marked
      *         format, because a reseal would then write the value in the format it already has.
      */
     boolean needsReseal(String value) {
         if (value == null || isSealingInTheEarlierFormat()) {
             return false;
         }
-        return !ring.primary().getKeyId().equals(AesGcmStringEncryptor.keyIdIn(value));
+        String keyId = AesGcmStringEncryptor.keyIdIn(value);
+        return !ring.primary().getKeyId().equals(keyId) && (keyId == null || !keyId.equals(ring.nextKeyId()));
     }
 
     /**
