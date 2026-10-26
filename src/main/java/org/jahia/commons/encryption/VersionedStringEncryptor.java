@@ -67,15 +67,12 @@ final class VersionedStringEncryptor implements StringEncryptor {
         }
         AesGcmStringEncryptor key = ring.forKeyId(keyId);
         if (key == null) {
-            // Without a primary key, the key a value names is the one the cluster is taking. With one, it is
-            // either a key this installation retired or one a peer already took.
-            String where = ring.primary() == null ? "jahia-commons.encryptor.next"
-                    : "jahia-commons.encryptor.previous.<n>, with jahia-commons.encryptor.legacy.password set, when "
-                            + "this installation retired that key, or to jahia-commons.encryptor.next when the "
-                            + "cluster is taking it,";
+            // The key is either one this installation retired or one a peer already took.
             throw new EncryptionOperationNotPossibleException("The value was sealed under the key with id "
-                    + keyId + ", and this installation holds no such key. Add that key to " + where
-                    + " to read the value.");
+                    + keyId + ", and this installation holds no such key. Add that key to "
+                    + "jahia-commons.encryptor.previous.<n>, with jahia-commons.encryptor.legacy.password set, when "
+                    + "this installation retired that key, or to jahia-commons.encryptor.next when the cluster is "
+                    + "taking it, to read the value.");
         }
         return key.decrypt(encryptedMessage);
     }

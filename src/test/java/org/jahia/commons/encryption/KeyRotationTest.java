@@ -363,10 +363,12 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
         String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
+        // With a primary key or without one, the missing key is either one the installation retired or one a
+        // peer took, and the next key may already hold another.
         EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
-        refusesNaming(underKey2, NEXT_PROP);
+        refusesNaming(underKey2, PREVIOUS_PROP + "<n>, with " + LEGACY_PASSWORD_PROP);
+        refusesNaming(underKey2, NEXT_PROP + " when the cluster is taking it");
 
-        // With a primary key, the missing key is either one the installation retired or one a peer took.
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
         refusesNaming(underKey2, PREVIOUS_PROP + "<n>, with " + LEGACY_PASSWORD_PROP);
         refusesNaming(underKey2, NEXT_PROP + " when the cluster is taking it");
@@ -394,21 +396,30 @@ public class KeyRotationTest {
     }
 
     /**
-     * Without a key that seals, '__none__' is refused, so the refusal of a next key does not offer it.
+     * Without a key that seals, '__none__' is refused, so the refusal of a missing legacy password does not offer
+     * it, whichever keys that only open values are set.
      */
     @Test
-    public void theRefusalOfANextKeyOffersNoneOnlyWithAKeyThatSeals() {
-        assertFalse("Without a password", refusalOf(null, KEY_1).contains(EncryptionUtils.NO_KEY_TOKEN));
-        assertTrue("With a password", refusalOf(KEY_2, KEY_1).contains(EncryptionUtils.NO_KEY_TOKEN));
+    public void theRefusalOfAMissingLegacyPasswordOffersNoneOnlyWithAKeyThatSeals() {
+        List<String> noReadOnlyKey = emptyList();
+        List<String> aReadOnlyKey = singletonList(KEY_3);
+        String none = EncryptionUtils.NO_KEY_TOKEN;
+        assertFalse("A next key, no password", refusalOf(null, KEY_1, noReadOnlyKey).contains(none));
+        assertFalse("A read-only key, no password", refusalOf(null, null, aReadOnlyKey).contains(none));
+        assertFalse("Both, no password", refusalOf(null, KEY_1, aReadOnlyKey).contains(none));
+        assertTrue("A next key and a password", refusalOf(KEY_2, KEY_1, noReadOnlyKey).contains(none));
+        assertTrue("A read-only key and a password", refusalOf(KEY_2, null, aReadOnlyKey).contains(none));
     }
 
-    private static String refusalOf(String password, String next) {
+    private static String refusalOf(String password, String next, List<String> readOnlyKeys) {
         try {
-            EncryptionUtils.initializeEncryptor(password, next, null, null, null, true);
+            EncryptionUtils.initializeEncryptor(password, next, readOnlyKeys, null, null, true);
         } catch (IllegalArgumentException e) {
+            assertTrue("The refusal should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains("Set " + LEGACY_PASSWORD_PROP + " now"));
             return e.getMessage();
         }
-        fail("A next key without a legacy password should be refused");
+        fail("Keys that only open values, without a legacy password, should be refused");
         return null;
     }
 
@@ -455,6 +466,8 @@ public class KeyRotationTest {
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertFalse(EncryptionUtils.canDecrypt(underKey2));
         refusesNaming(underKey2, KEY_ID_2);
+        refusesNaming(underKey2, PREVIOUS_PROP + "<n>, with " + LEGACY_PASSWORD_PROP + " set, when this "
+                + "installation retired that key, or to " + NEXT_PROP + " when the cluster is taking it");
     }
 
     /**

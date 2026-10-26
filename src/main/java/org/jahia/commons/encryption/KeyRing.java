@@ -101,7 +101,7 @@ final class KeyRing {
      * @return whether the id names the primary key or the next key, which a reseal leaves where they are
      */
     boolean isCurrentOrNext(String keyId) {
-        return keyId != null && (keyId.equals(primary.getKeyId()) || keyId.equals(nextKeyId));
+        return keyId != null && ((primary != null && keyId.equals(primary.getKeyId())) || keyId.equals(nextKeyId));
     }
 
     /**

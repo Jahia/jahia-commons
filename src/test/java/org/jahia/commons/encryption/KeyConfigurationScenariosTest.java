@@ -155,12 +155,14 @@ public class KeyConfigurationScenariosTest {
     }
 
     private void check(Setup setup, List<String> mismatches) {
-        boolean started = start(setup);
-        if (started == setup.isRefused()) {
-            mismatches.add(setup + ": expected " + (setup.isRefused() ? "a refusal" : "a start") + ", got the other");
+        String refusal = refusalOf(setup);
+        String expected = setup.refusingRule();
+        if (expected == null ? refusal != null : refusal == null || !refusal.contains(expected)) {
+            mismatches.add(setup + ": expected " + (expected == null ? "a start" : "the refusal '" + expected + "'")
+                    + ", got " + (refusal == null ? "a start" : "the refusal '" + refusal + "'"));
             return;
         }
-        if (!started) {
+        if (refusal != null) {
             return;
         }
         String written = EncryptionUtils.passwordBaseEncrypt(VALUE);
@@ -229,6 +231,13 @@ public class KeyConfigurationScenariosTest {
     }
 
     private static boolean start(Setup setup) {
+        return refusalOf(setup) == null;
+    }
+
+    /**
+     * @return null when the installation starts under the setup, the message of the refusal otherwise
+     */
+    private static String refusalOf(Setup setup) {
         clearProperties();
         if (setup.passwordRoute == Route.CONFIGURATION) {
             System.setProperty(PASSWORD_PROP, setup.password);
@@ -248,9 +257,9 @@ public class KeyConfigurationScenariosTest {
             EncryptionUtils.initializeEncryptor(argument(setup.password, setup.passwordRoute),
                     argument(setup.next, setup.nextRoute), previous, null, argument(setup.legacy, setup.legacyRoute),
                     true);
-            return true;
+            return null;
         } catch (IllegalArgumentException e) {
-            return false;
+            return e.getMessage();
         }
     }
 
@@ -365,10 +374,17 @@ public class KeyConfigurationScenariosTest {
         /**
          * A next key and read-only keys need a named legacy password, and closing its reader needs a key that
          * seals.
+         *
+         * @return a phrase of the message of the rule that refuses the setup, or null when it starts
          */
-        boolean isRefused() {
-            boolean opensWithoutSealing = next != null || !previous.isEmpty();
-            return (opensWithoutSealing && legacy == null) || (NONE.equals(legacy) && password == null);
+        String refusingRule() {
+            if ((next != null || !previous.isEmpty()) && legacy == null) {
+                return "Set " + LEGACY_PASSWORD_PROP + " now";
+            }
+            if (NONE.equals(legacy) && password == null) {
+                return "closes the reader of values carrying no format marker";
+            }
+            return null;
         }
 
         /**

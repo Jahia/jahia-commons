@@ -457,8 +457,8 @@ public final class EncryptionUtils {
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
-        refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
-        String nextSecret = nextSecretOf(nextPassword, namedLegacySecret, ownSecret);
+        String nextSecret = nextSecretOf(nextPassword);
+        refuseOpeningKeysWithoutALegacyKey(nextSecret, readOnlySecrets, namedLegacySecret, ownSecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -505,16 +505,10 @@ public final class EncryptionUtils {
     }
 
     /**
-     * The next key is moved to the password at the second step, and the default of the legacy key would then
-     * follow it and read every unmarked value under the wrong key. The legacy key is therefore named from the
-     * first step, so that the second one only moves the key.
-     *
      * @param nextPassword the next key an application passes, or null to read it from the configuration
-     * @param namedLegacySecret the legacy key the argument or the configuration names, or null
-     * @param ownSecret the key that seals new values, or null
      * @return the next key, or null when none is set
      */
-    private static String nextSecretOf(String nextPassword, String namedLegacySecret, String ownSecret) {
+    private static String nextSecretOf(String nextPassword) {
         String nextSecret = nextPassword != null ? nextPassword
                 : ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
         if (nextSecret == null) {
@@ -526,32 +520,32 @@ public final class EncryptionUtils {
                     + "blank.");
         }
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
-        if (namedLegacySecret == null) {
-            // NO_KEY_TOKEN is refused without a key that seals, so it is offered only when one is set.
-            String values = ownSecret == null ? "'" + SHIPPED_KEY_TOKEN + "' when none was set, or the earlier "
-                    + "password when one was" : "'" + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password "
-                    + "when one was, or '" + NO_KEY_TOKEN + "' when no such value is left";
-            throw new IllegalArgumentException(ENCRYPTOR_NEXT_PROP + " is set, and the key it names becomes "
-                    + ENCRYPTOR_PASSWORD_PROP + " at the next step, which would also become the default of "
-                    + ENCRYPTOR_LEGACY_PASSWORD_PROP + ". Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the "
-                    + "password that wrote the values carrying no marker: " + values + ".");
-        }
         return nextSecret;
     }
 
     /**
-     * A rotation moves the old password to a read-only key, and read-only keys open marked values only. The
-     * default of the legacy key would then follow the new password, which reads every unmarked value under
-     * the wrong key, so the legacy key is named whenever read-only keys are.
+     * A next key and read-only keys open marked values only. A rotation moves the old password to a read-only
+     * key, and a next key moves to the password at the second step, and either way the default of the legacy
+     * key would follow the new password and read every unmarked value under the wrong key. The legacy key is
+     * therefore named whenever either is set, from the first step, so that the second one only moves keys.
      */
-    private static void refuseReadOnlyKeysWithoutALegacyKey(List<String> readOnlySecrets, String namedLegacySecret) {
-        if (!readOnlySecrets.isEmpty() && namedLegacySecret == null) {
-            throw new IllegalArgumentException("Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
-                    + "<n>, and they open values carrying the " + AesGcmStringEncryptor.MARKER + " marker only. "
-                    + "Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " to the password that wrote the values carrying "
-                    + "no marker: '" + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password when one "
-                    + "was, or '" + NO_KEY_TOKEN + "' when no such value is left.");
+    private static void refuseOpeningKeysWithoutALegacyKey(String nextSecret, List<String> readOnlySecrets,
+            String namedLegacySecret, String ownSecret) {
+        if ((nextSecret == null && readOnlySecrets.isEmpty()) || namedLegacySecret != null) {
+            return;
         }
+        String which = nextSecret == null ? ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> is"
+                : readOnlySecrets.isEmpty() ? ENCRYPTOR_NEXT_PROP + " is"
+                        : ENCRYPTOR_NEXT_PROP + " and " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> are";
+        // NO_KEY_TOKEN is refused without a key that seals, so it is offered only when one is set.
+        String values = "'" + SHIPPED_KEY_TOKEN + "' when none was set, " + (ownSecret == null
+                ? "or the earlier password when one was"
+                : "the earlier password when one was, or '" + NO_KEY_TOKEN + "' when no such value is left");
+        throw new IllegalArgumentException(which + " set, and these keys open values carrying the "
+                + AesGcmStringEncryptor.MARKER + " marker only. Once a key moves to " + ENCRYPTOR_PASSWORD_PROP
+                + ", the default of " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " would follow it. Set "
+                + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the password that wrote the values carrying no marker: "
+                + values + ".");
     }
 
     private static void reportKeys(String ownSecret, String nextSecret, List<String> readOnlySecrets,
@@ -565,7 +559,11 @@ public final class EncryptionUtils {
             reportPassphraseOnce();
         }
         if (usingDefaultKey) {
-            reportDefaultKeyOnce();
+            if (nextSecret == null) {
+                // With a next key set, the report above says when to set the password, and this one would urge
+                // it before every node holds the key.
+                reportDefaultKeyOnce();
+            }
         } else if (ownSecret == null && nextSecret == null && readOnlySecrets.isEmpty()) {
             // The key is this installation's own, and it reads the stored values rather than sealing new
             // ones. A node of a cluster reaches this when the key reached its peers and not this node. With

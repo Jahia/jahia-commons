@@ -368,6 +368,23 @@ public class VersionedEncryptionTest {
                 report.contains("leave " + LEGACY_PASSWORD_PROP + " as it is"));
     }
 
+    /**
+     * At the first step of a first key from the shipped key, new values are still sealed with the shipped
+     * password. Setting the password now on one node is the failure the procedure prevents, so no report urges
+     * it, and the next-key report says when.
+     */
+    @Test
+    public void theFirstStepOfAFirstKeyIsNotUrgedToSetThePassword() {
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null,
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true));
+
+        assertFalse("No report should urge setting the password now, and got: " + reported,
+                reported.stream().anyMatch(line -> line.contains("to a password belonging to this installation")));
+        assertEquals("One report, and got: " + reported, 1, reported.size());
+        assertTrue("The report should say when to set the password, and got: " + reported,
+                reported.get(0).contains("Once every node of a cluster holds it"));
+    }
+
     @Test
     public void aNodeWithANextKeyAloneIsNotReportedAsUnableToReadItsPeers() {
         System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
