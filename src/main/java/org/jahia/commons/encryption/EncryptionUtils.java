@@ -108,6 +108,11 @@ public final class EncryptionUtils {
     private static final AtomicBoolean PASSPHRASE_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean NEXT_KEY_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean NEXT_PASSPHRASE_REPORTED = new AtomicBoolean();
+    private static final String NEXT_KEY_REPORT = ENCRYPTOR_NEXT_PROP + " holds a key that reads values carrying "
+            + "the " + AesGcmStringEncryptor.MARKER + " marker and seals none. Once every node of a cluster holds "
+            + "it, move it on each node to " + ENCRYPTOR_PASSWORD_PROP + ", move the key that property held, if "
+            + "any, to " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and leave " + ENCRYPTOR_LEGACY_PASSWORD_PROP
+            + " as it is.";
     private static final AtomicBoolean READ_ONLY_KEYS_ALONE_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
@@ -713,15 +718,14 @@ public final class EncryptionUtils {
 
     private static void reportNextKeyOnce(boolean usingDefaultKey) {
         if (NEXT_KEY_REPORTED.compareAndSet(false, true)) {
-            // This report replaces the one of the shipped password, so it carries that signal too.
-            String sealing = usingDefaultKey ? " Until then, new values are sealed with the password shipped "
-                    + "with this library." : "";
-            Logger.getLogger(EncryptionUtils.class.getName()).warning(
-                    ENCRYPTOR_NEXT_PROP + " holds a key that reads values carrying the "
-                            + AesGcmStringEncryptor.MARKER + " marker and seals none. Once every node of a "
-                            + "cluster holds it, move it on each node to " + ENCRYPTOR_PASSWORD_PROP + ", move "
-                            + "the key that property held, if any, to " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
-                            + "<n>, and leave " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " as it is." + sealing);
+            Logger logger = Logger.getLogger(EncryptionUtils.class.getName());
+            if (usingDefaultKey) {
+                // This report replaces the one of the shipped password, so it carries that signal too.
+                logger.warning(NEXT_KEY_REPORT + " Until then, new values are sealed with the password shipped "
+                        + "with this library.");
+            } else {
+                logger.warning(NEXT_KEY_REPORT);
+            }
         }
     }
 
