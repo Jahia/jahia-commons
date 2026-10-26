@@ -108,6 +108,7 @@ public final class EncryptionUtils {
     private static final AtomicBoolean EARLIER_FORMAT_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean PASSPHRASE_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean UNUSED_READ_ONLY_KEYS_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean LEGACY_KEY_FOLLOWS_PASSWORD_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
@@ -506,6 +507,11 @@ public final class EncryptionUtils {
             ring = new KeyRing(null, nextSecret, Collections.<String>emptyList());
         }
         reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey);
+        if (namedLegacySecret == null && configuredSecret != null) {
+            // Right for an installation that held this password before the marked format, and wrong for one
+            // that ran on the shipped key and sets its first password now. Nothing here tells them apart.
+            reportLegacyKeyFollowsPasswordOnce();
+        }
         StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
     }
@@ -631,6 +637,7 @@ public final class EncryptionUtils {
         EARLIER_FORMAT_REPORTED.set(false);
         PASSPHRASE_REPORTED.set(false);
         UNUSED_READ_ONLY_KEYS_REPORTED.set(false);
+        LEGACY_KEY_FOLLOWS_PASSWORD_REPORTED.set(false);
     }
 
     private static void reportPassphraseOnce() {
@@ -653,6 +660,17 @@ public final class EncryptionUtils {
                     "Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and no value is read "
                             + "under them, because " + ENCRYPTOR_PASSWORD_PROP + " is not set. Set it to the key "
                             + "that seals new values.");
+        }
+    }
+
+    private static void reportLegacyKeyFollowsPasswordOnce() {
+        if (LEGACY_KEY_FOLLOWS_PASSWORD_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    "Values carrying no format marker are read under " + ENCRYPTOR_PASSWORD_PROP + ", because "
+                            + ENCRYPTOR_LEGACY_PASSWORD_PROP + " is not set. If they were written before this "
+                            + "installation set a password, set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " to '"
+                            + SHIPPED_KEY_TOKEN + "', or they cannot be read. Set it to the password itself to "
+                            + "silence this report.");
         }
     }
 
