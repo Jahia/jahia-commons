@@ -369,6 +369,25 @@ public class VersionedEncryptionTest {
     }
 
     /**
+     * A passphrase set as the next key becomes the password at the next step, so it is reported while it is
+     * still cheap to replace.
+     */
+    @Test
+    public void aPassphraseSetAsTheNextKeyIsReported() {
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, SITE_PASSWORD, null,
+                null, EncryptionUtils.SHIPPED_KEY_TOKEN, true));
+
+        assertTrue("The next key should be reported as a passphrase, and got: " + reported,
+                reported.stream().anyMatch(line -> line.startsWith("jahia-commons.encryptor.next holds a passphrase")
+                        && line.contains("base64:")));
+
+        List<String> rawKey = reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, KEY_B, null, null,
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true));
+        assertFalse("A key of raw material should not be reported, and got: " + rawKey,
+                rawKey.stream().anyMatch(line -> line.contains("holds a passphrase")));
+    }
+
+    /**
      * At the first step of a first key from the shipped key, new values are still sealed with the shipped
      * password. Setting the password now on one node is the failure the procedure prevents, so no report urges
      * it, and the next-key report says when.

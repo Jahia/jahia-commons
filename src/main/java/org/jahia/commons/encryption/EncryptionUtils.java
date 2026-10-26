@@ -107,6 +107,7 @@ public final class EncryptionUtils {
     private static final AtomicBoolean EARLIER_FORMAT_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean PASSPHRASE_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean NEXT_KEY_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean NEXT_PASSPHRASE_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean READ_ONLY_KEYS_ALONE_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
@@ -196,9 +197,14 @@ public final class EncryptionUtils {
      * Allows applications to initialize the encryptor configuration before first use.
      * This method should be called during application startup, before any encryption operations.
      *
+     * <p>The next key, the read-only keys and the legacy password are read from the configuration, as
+     * {@link #initializeEncryptor(String, String, List, String, String, boolean)} describes.</p>
+     *
      * @param password the encryption password (optional, will use config/default if null)
      * @param algorithm the encryption algorithm (optional, will use config/default if null)
      * @throws IllegalStateException if the encryptor is already initialized
+     * @throws IllegalArgumentException if the configuration is refused, for the reasons the six-argument
+     *             method lists
      */
     public static void initializeEncryptor(String password, String algorithm) {
         initializeEncryptor(password, algorithm, false);
@@ -212,10 +218,15 @@ public final class EncryptionUtils {
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
      *
+     * <p>The next key, the read-only keys and the legacy password are read from the configuration, as
+     * {@link #initializeEncryptor(String, String, List, String, String, boolean)} describes.</p>
+     *
      * @param password the encryption password (optional, will use config/default if null)
      * @param algorithm the encryption algorithm (optional, will use config/default if null)
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
+     * @throws IllegalArgumentException if the configuration is refused, for the reasons the six-argument
+     *             method lists
      */
     public static void initializeEncryptor(String password, String algorithm, boolean force) {
         initializeEncryptor(password, algorithm, null, force);
@@ -230,6 +241,9 @@ public final class EncryptionUtils {
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
      *
+     * <p>The next key and the read-only keys are read from the configuration, as
+     * {@link #initializeEncryptor(String, String, List, String, String, boolean)} describes.</p>
+     *
      * @param password the encryption password, which seals every new value (optional, will use
      *            config/default if null)
      * @param algorithm the encryption algorithm (optional, will use config/default if null)
@@ -238,7 +252,8 @@ public final class EncryptionUtils {
      *            name this one too, because the configuration default cannot see it.
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
-     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length
+     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
+     *             or if the configuration is refused for the other reasons the six-argument method lists
      */
     public static void initializeEncryptor(String password, String algorithm, String legacyPassword, boolean force) {
         initializeEncryptor(password, null, algorithm, legacyPassword, force);
@@ -254,13 +269,17 @@ public final class EncryptionUtils {
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
      *
-     * <p>Each passphrase, as the primary key or as a read-only key, is stretched once when the encryptor is
-     * built, which takes about half a second per key. Call this method at startup so that the first
-     * encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
+     * <p>Each passphrase, as the primary key, the next key or a read-only key, is stretched once when the
+     * encryptor is built, which takes about half a second per key. Call this method at startup so that the
+     * first encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
      *
      * <p>Read-only keys open values carrying the format marker only. A value carrying no marker is read with
      * the legacy password, so the password that wrote such values is named there, and this method refuses
      * read-only keys when no legacy password is named, by the argument or by the configuration.</p>
+     *
+     * <p>The next key is read from the configuration, {@code jahia-commons.encryptor.next} or
+     * {@code JAHIA_COMMONS_ENCRYPTOR_NEXT}, as {@link #initializeEncryptor(String, String, List, String, String,
+     * boolean)} describes, and it needs a named legacy password too.</p>
      *
      * @param password the encryption password, which seals every new value (optional, will use
      *            config/default if null)
@@ -274,8 +293,8 @@ public final class EncryptionUtils {
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
-     *             if one key is named twice, if a token is set where it is not read, or if read-only keys are
-     *             named and no legacy password is
+     *             if one key is named twice, if a token is set where it is not read, or if a next key or
+     *             read-only keys are named and no legacy password is
      */
     public static void initializeEncryptor(String password, List<String> previousPasswords, String algorithm,
             String legacyPassword, boolean force) {
@@ -546,9 +565,14 @@ public final class EncryptionUtils {
         String values = "'" + SHIPPED_KEY_TOKEN + "' when none was set, " + (ownSecret == null
                 ? "or the earlier password when one was"
                 : "the earlier password when one was, or '" + NO_KEY_TOKEN + "' when no such value is left");
+        // With a password set, a key has already moved to it, and the default reads under it now.
+        String defaultFollows = ownSecret == null
+                ? "Once a key moves to " + ENCRYPTOR_PASSWORD_PROP + ", the default of "
+                        + ENCRYPTOR_LEGACY_PASSWORD_PROP + " would follow it."
+                : "The default of " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " follows " + ENCRYPTOR_PASSWORD_PROP
+                        + " now, and would read every value carrying no marker under it.";
         throw new IllegalArgumentException(which + " set, and these keys open values carrying the "
-                + AesGcmStringEncryptor.MARKER + " marker only. Once a key moves to " + ENCRYPTOR_PASSWORD_PROP
-                + ", the default of " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " would follow it. Set "
+                + AesGcmStringEncryptor.MARKER + " marker only. " + defaultFollows + " Set "
                 + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the password that wrote the values carrying no marker: "
                 + values + ".");
     }
@@ -562,6 +586,10 @@ public final class EncryptionUtils {
         }
         if (ownSecret != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
             reportPassphraseOnce();
+        }
+        if (nextSecret != null && !nextSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
+            // Reported now, while the key is easy to replace: once it is the password, that takes a rotation.
+            reportNextPassphraseOnce();
         }
         if (usingDefaultKey) {
             if (nextSecret == null) {
@@ -632,6 +660,7 @@ public final class EncryptionUtils {
         EARLIER_FORMAT_REPORTED.set(false);
         PASSPHRASE_REPORTED.set(false);
         NEXT_KEY_REPORTED.set(false);
+        NEXT_PASSPHRASE_REPORTED.set(false);
         READ_ONLY_KEYS_ALONE_REPORTED.set(false);
     }
 
@@ -646,6 +675,18 @@ public final class EncryptionUtils {
                             + "key opens values carrying the " + AesGcmStringEncryptor.MARKER + " marker only, so "
                             + "the password that wrote values carrying no marker goes in "
                             + ENCRYPTOR_LEGACY_PASSWORD_PROP + ".");
+        }
+    }
+
+    private static void reportNextPassphraseOnce() {
+        if (NEXT_PASSPHRASE_REPORTED.compareAndSet(false, true)) {
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+                    ENCRYPTOR_NEXT_PROP + " holds a passphrase, and it becomes " + ENCRYPTOR_PASSWORD_PROP
+                            + " at the next step. A passphrase is only as strong as it is hard to guess, and "
+                            + "replacing it once it is the password takes another rotation. Prefer a key of 32 "
+                            + "random bytes, set as '" + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its "
+                            + "Base64 form, which 'openssl rand -base64 32' produces, and set it in "
+                            + ENCRYPTOR_NEXT_PROP + " instead while no node uses it as the password yet.");
         }
     }
 

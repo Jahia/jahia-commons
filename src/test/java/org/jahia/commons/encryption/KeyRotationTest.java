@@ -411,6 +411,21 @@ public class KeyRotationTest {
         assertTrue("A read-only key and a password", refusalOf(KEY_2, null, aReadOnlyKey).contains(none));
     }
 
+    /**
+     * Without a password, the default of the legacy key would follow a key once it moves there. With one, a
+     * key has already moved, and the default follows it now.
+     */
+    @Test
+    public void theRefusalOfAMissingLegacyPasswordSaysWhenTheDefaultFollowsThePassword() {
+        List<String> aReadOnlyKey = singletonList(KEY_3);
+        String now = "The default of " + LEGACY_PASSWORD_PROP + " follows " + PASSWORD_PROP + " now";
+        String later = "Once a key moves to " + PASSWORD_PROP;
+        assertTrue("A read-only key and a password", refusalOf(KEY_2, null, aReadOnlyKey).contains(now));
+        assertTrue("A next key and a password", refusalOf(KEY_2, KEY_1, emptyList()).contains(now));
+        assertTrue("A next key, no password", refusalOf(null, KEY_1, emptyList()).contains(later));
+        assertTrue("A read-only key, no password", refusalOf(null, null, aReadOnlyKey).contains(later));
+    }
+
     private static String refusalOf(String password, String next, List<String> readOnlyKeys) {
         try {
             EncryptionUtils.initializeEncryptor(password, next, readOnlyKeys, null, null, true);
