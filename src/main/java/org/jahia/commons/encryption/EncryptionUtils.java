@@ -365,9 +365,10 @@ public final class EncryptionUtils {
      * value alone: nothing is decrypted, so a value that answers true is still refused when it was altered.
      *
      * @param value a stored value
-     * @return false for a value carrying the format marker and no key id, for a key id that neither the
-     *         primary key, the next key nor a read-only key holds, and for a value carrying no marker once
-     *         {@link #NO_KEY_TOKEN} closes the reader of that format; true otherwise, null included
+     * @return false for a value carrying the format marker and no key id, for a key id the ring does not
+     *         hold (the primary key, the next key, and the read-only keys once a primary key is set), and for
+     *         a value carrying no marker once {@link #NO_KEY_TOKEN} closes the reader of that format; true
+     *         otherwise, null included
      */
     public static boolean canDecrypt(String value) {
         StringEncryptor current = getStringEncryptor();
