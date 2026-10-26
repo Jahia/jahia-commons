@@ -342,8 +342,18 @@ public class VersionedEncryptionTest {
         List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null,
                 singletonList(KEY_A), null, null, true));
 
-        assertTrue("The report should name the read-only keys, and got: " + reported,
-                reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.")));
+        // The node reads what its peers seal, so the report of a node that cannot is not drawn.
+        assertFalse("The earlier-format report should not be drawn, and got: " + reported,
+                reported.stream().anyMatch(line -> line.contains("this node cannot read what they write")));
+        assertEquals("One report, and got: " + reported, 1, reported.size());
+        String report = reported.get(0);
+        assertTrue("The report should name the read-only keys, and got: " + report,
+                report.contains("jahia-commons.encryptor.previous."));
+        assertTrue("The report should say marked values are read under them, and got: " + report,
+                report.contains("marker are read under those keys"));
+        assertTrue("The report should say when to set the key as the password, and got: " + report,
+                report.contains("Once every node of a cluster holds the new key this way, set it as "
+                        + PASSWORD_PROP));
     }
 
     @Test

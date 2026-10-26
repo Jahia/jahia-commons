@@ -487,9 +487,10 @@ public final class EncryptionUtils {
         }
         if (usingDefaultKey) {
             reportDefaultKeyOnce();
-        } else if (ownSecret == null) {
+        } else if (ownSecret == null && readOnlySecrets.isEmpty()) {
             // The key is this installation's own, and it reads the stored values rather than sealing new
-            // ones. A node of a cluster reaches this when the key reached its peers and not this node.
+            // ones. A node of a cluster reaches this when the key reached its peers and not this node. With
+            // read-only keys set, the node reads what its peers seal, and the report above says so.
             reportEarlierFormatOnce();
         }
     }
