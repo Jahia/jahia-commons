@@ -299,9 +299,10 @@ public class KeyRotationTest {
 
     @Test
     public void theNextKeyNamedAsAReadOnlyKeyIsRefused() {
+        List<String> readOnlyKeys = singletonList(KEY_1);
         try {
-            EncryptionUtils.initializeEncryptor(KEY_2, KEY_1, singletonList(KEY_1), null,
-                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            EncryptionUtils.initializeEncryptor(KEY_2, KEY_1, readOnlyKeys, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
             fail("One key named as the next key and as a read-only key should be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say a key is named twice, and got: " + e.getMessage(),
