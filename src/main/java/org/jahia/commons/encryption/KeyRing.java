@@ -23,6 +23,7 @@ final class KeyRing {
     private static final String READ_ONLY_ROLE = "jahia-commons.encryptor.previous.<n>";
 
     private final AesGcmStringEncryptor primary;
+    private final String nextKeyId;
     private final Map<String, AesGcmStringEncryptor> byKeyId;
 
     /**
@@ -56,6 +57,7 @@ final class KeyRing {
             }
         }
         AesGcmStringEncryptor primaryKey = null;
+        String nextId = null;
         Map<String, AesGcmStringEncryptor> keys = new LinkedHashMap<>();
         Map<String, String> roleByKeyId = new HashMap<>();
         for (int i = 0; i < secrets.size(); i++) {
@@ -69,9 +71,12 @@ final class KeyRing {
             keys.put(key.getKeyId(), key);
             if (PRIMARY_ROLE.equals(roles.get(i))) {
                 primaryKey = key;
+            } else if (NEXT_ROLE.equals(roles.get(i))) {
+                nextId = key.getKeyId();
             }
         }
         primary = primaryKey;
+        nextKeyId = nextId;
         byKeyId = Collections.unmodifiableMap(keys);
     }
 
@@ -89,6 +94,14 @@ final class KeyRing {
      */
     AesGcmStringEncryptor primary() {
         return primary;
+    }
+
+    /**
+     * @param keyId a key id read from a value
+     * @return whether the id names the primary key or the next key, which a reseal leaves where they are
+     */
+    boolean isCurrentOrNext(String keyId) {
+        return keyId != null && (keyId.equals(primary.getKeyId()) || keyId.equals(nextKeyId));
     }
 
     /**

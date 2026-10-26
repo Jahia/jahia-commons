@@ -67,9 +67,12 @@ final class VersionedStringEncryptor implements StringEncryptor {
         }
         AesGcmStringEncryptor key = ring.forKeyId(keyId);
         if (key == null) {
-            // Without a primary key, the key a value names is the one the cluster is taking.
+            // Without a primary key, the key a value names is the one the cluster is taking. With one, it is
+            // either a key this installation retired or one a peer already took.
             String where = ring.primary() == null ? "jahia-commons.encryptor.next"
-                    : "jahia-commons.encryptor.previous.<n>, with jahia-commons.encryptor.legacy.password set,";
+                    : "jahia-commons.encryptor.previous.<n>, with jahia-commons.encryptor.legacy.password set, when "
+                            + "this installation retired that key, or to jahia-commons.encryptor.next when the "
+                            + "cluster is taking it,";
             throw new EncryptionOperationNotPossibleException("The value was sealed under the key with id "
                     + keyId + ", and this installation holds no such key. Add that key to " + where
                     + " to read the value.");
@@ -79,15 +82,17 @@ final class VersionedStringEncryptor implements StringEncryptor {
 
     /**
      * @param value a stored value
-     * @return whether the value is not under the primary key: it carries no marker, or it names another key,
-     *         whether the ring holds that key or not. Always false when no key seals new values in the marked format, because a
-     *         reseal would then write the value in the format it already has.
+     * @return whether the value is under neither the primary key nor the next key: it carries no marker, or it
+     *         names another key, whether the ring holds that key or not. A value under the next key was sealed by
+     *         a node already promoted to it, and sealing it again here would move it back under the key the
+     *         installation is leaving. Always false when no key seals new values in the marked format, because
+     *         a reseal would then write the value in the format it already has.
      */
     boolean needsReseal(String value) {
         if (value == null || isSealingInTheEarlierFormat()) {
             return false;
         }
-        return !ring.primary().getKeyId().equals(AesGcmStringEncryptor.keyIdIn(value));
+        return !ring.isCurrentOrNext(AesGcmStringEncryptor.keyIdIn(value));
     }
 
     /**

@@ -211,6 +211,10 @@ public class KeyConfigurationScenariosTest {
             for (int i = 0; i <= Math.min(j + 1, steps.length - 1); i++) {
                 expectReadable(mismatches, "step " + j + " reads what step " + i + " wrote", written.get(i));
             }
+            // A reseal at one step must not move what the next step wrote back under the key it is leaving.
+            if (j + 1 < steps.length && EncryptionUtils.needsReseal(written.get(j + 1))) {
+                mismatches.add("step " + j + " reports what step " + (j + 1) + " wrote as needing a reseal");
+            }
         }
         assertTrue(String.join("\n", mismatches), mismatches.isEmpty());
     }

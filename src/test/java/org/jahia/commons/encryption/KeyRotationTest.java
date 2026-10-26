@@ -366,8 +366,50 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
         refusesNaming(underKey2, NEXT_PROP);
 
+        // With a primary key, the missing key is either one the installation retired or one a peer took.
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
         refusesNaming(underKey2, PREVIOUS_PROP + "<n>, with " + LEGACY_PASSWORD_PROP);
+        refusesNaming(underKey2, NEXT_PROP + " when the cluster is taking it");
+    }
+
+    /**
+     * During a rotation, a node at the first step holds the new key as the next key, and a promoted peer seals
+     * under it. A reseal on the first node would move those values back under the key the cluster is leaving.
+     */
+    @Test
+    public void aValueUnderTheNextKeyNeedsNoReseal() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, singletonList(KEY_1), null,
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
+        String underAnotherKey = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        assertFalse("A value under the next key", EncryptionUtils.needsReseal(fromAPromotedNode));
+        assertFalse("A value under the primary key", EncryptionUtils.needsReseal(fromAFirstStepNode));
+        assertTrue("A value under another key", EncryptionUtils.needsReseal(underAnotherKey));
+        assertTrue("An unmarked value", EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
+    }
+
+    /**
+     * Without a key that seals, '__none__' is refused, so the refusal of a next key does not offer it.
+     */
+    @Test
+    public void theRefusalOfANextKeyOffersNoneOnlyWithAKeyThatSeals() {
+        assertFalse("Without a password", refusalOf(null, KEY_1).contains(EncryptionUtils.NO_KEY_TOKEN));
+        assertTrue("With a password", refusalOf(KEY_2, KEY_1).contains(EncryptionUtils.NO_KEY_TOKEN));
+    }
+
+    private static String refusalOf(String password, String next) {
+        try {
+            EncryptionUtils.initializeEncryptor(password, next, null, null, null, true);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+        fail("A next key without a legacy password should be refused");
+        return null;
     }
 
     @Test

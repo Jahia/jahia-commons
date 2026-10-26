@@ -332,7 +332,8 @@ public final class EncryptionUtils {
      *
      * @param value a stored value
      * @return true when the value carries no format marker, or names a key other than the one that seals new
-     *         values; false for null, and for every value when no key of this installation's own seals new
+     *         values and the next key; false for null, for a value under the next key, which a node already
+     *         promoted to it sealed, and for every value when no key of this installation's own seals new
      *         values, because sealing again would write the format the value already has
      */
     public static boolean needsReseal(String value) {
@@ -457,7 +458,7 @@ public final class EncryptionUtils {
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
-        String nextSecret = nextSecretOf(nextPassword, namedLegacySecret);
+        String nextSecret = nextSecretOf(nextPassword, namedLegacySecret, ownSecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
             // Resolved after the argument and the configuration, so the token reaches this library by either
             // route.
@@ -510,9 +511,10 @@ public final class EncryptionUtils {
      *
      * @param nextPassword the next key an application passes, or null to read it from the configuration
      * @param namedLegacySecret the legacy key the argument or the configuration names, or null
+     * @param ownSecret the key that seals new values, or null
      * @return the next key, or null when none is set
      */
-    private static String nextSecretOf(String nextPassword, String namedLegacySecret) {
+    private static String nextSecretOf(String nextPassword, String namedLegacySecret, String ownSecret) {
         String nextSecret = nextPassword != null ? nextPassword
                 : ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
         if (nextSecret == null) {
@@ -525,12 +527,14 @@ public final class EncryptionUtils {
         }
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         if (namedLegacySecret == null) {
+            // NO_KEY_TOKEN is refused without a key that seals, so it is offered only when one is set.
+            String values = ownSecret == null ? "'" + SHIPPED_KEY_TOKEN + "' when none was set, or the earlier "
+                    + "password when one was" : "'" + SHIPPED_KEY_TOKEN + "' when none was set, the earlier password "
+                    + "when one was, or '" + NO_KEY_TOKEN + "' when no such value is left";
             throw new IllegalArgumentException(ENCRYPTOR_NEXT_PROP + " is set, and the key it names becomes "
                     + ENCRYPTOR_PASSWORD_PROP + " at the next step, which would also become the default of "
                     + ENCRYPTOR_LEGACY_PASSWORD_PROP + ". Set " + ENCRYPTOR_LEGACY_PASSWORD_PROP + " now to the "
-                    + "password that wrote the values carrying no marker: '" + SHIPPED_KEY_TOKEN + "' when none "
-                    + "was set, the earlier password when one was, or '" + NO_KEY_TOKEN + "' when no such value is "
-                    + "left.");
+                    + "password that wrote the values carrying no marker: " + values + ".");
         }
         return nextSecret;
     }
