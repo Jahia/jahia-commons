@@ -358,14 +358,14 @@ public class VersionedEncryptionTest {
     @Test
     public void theNextKeyIsReportedWithTheStepThatPromotesIt() {
         List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, KEY_B, null, null,
-                null, true));
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true));
 
         assertEquals("One report, and got: " + reported, 1, reported.size());
         String report = reported.get(0);
         assertTrue("The report should say when and where to move the key, and got: " + report,
                 report.contains("Once every node of a cluster holds it, move it on each node to " + PASSWORD_PROP));
-        assertTrue("The report should say to keep the legacy password, and got: " + report,
-                report.contains("keep " + LEGACY_PASSWORD_PROP + " set"));
+        assertTrue("The report should say to leave the legacy password as it is, and got: " + report,
+                report.contains("leave " + LEGACY_PASSWORD_PROP + " as it is"));
     }
 
     @Test

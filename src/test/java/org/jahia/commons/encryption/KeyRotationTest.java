@@ -223,14 +223,16 @@ public class KeyRotationTest {
     }
 
     /**
-     * A cluster on the shipped key takes its first key in two rolling restarts: every node first holds the
-     * key as the next key, then each node moves it to the password. A node at either step reads what a node
-     * at the other step writes. The first step needs no legacy password, and the second one names it, because
-     * its default would follow the new password.
+     * A cluster on the shipped key takes its first key in two rolling restarts, through the configuration as
+     * an operator sets it: every node first holds the key as the next key, with the legacy password named,
+     * then each node moves the key to the password and changes nothing else. A node at either step reads what
+     * a node at the other step writes.
      */
     @Test
     public void aClusterTakesItsFirstKeyWithEveryNodeReadingTheOthers() {
-        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, null, true);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        System.setProperty(NEXT_PROP, KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertFalse("A node at the first step still writes the earlier format",
                 fromAFirstStepNode.startsWith("v2:"));
@@ -238,14 +240,18 @@ public class KeyRotationTest {
         assertFalse("Nothing is resealed while no key seals", EncryptionUtils.needsReseal(fromAFirstStepNode));
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
 
-        EncryptionUtils.initializeEncryptor(KEY_1, null, emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        System.clearProperty(NEXT_PROP);
+        System.setProperty(PASSWORD_PROP, KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(fromAPromotedNode.startsWith("v2:" + KEY_ID_1 + ":"));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAFirstStepNode));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
 
         // A node still at the first step, or rolled back to it.
-        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, null, true);
+        System.clearProperty(PASSWORD_PROP);
+        System.setProperty(NEXT_PROP, KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         assertTrue(EncryptionUtils.canDecrypt(fromAPromotedNode));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAPromotedNode));
     }
@@ -256,23 +262,60 @@ public class KeyRotationTest {
      */
     @Test
     public void aClusterRotatesItsKeyThroughTheNextKey() {
-        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        System.setProperty(PASSWORD_PROP, KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         String beforeTheRotation = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, null, true);
+        System.setProperty(NEXT_PROP, KEY_2);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue("The next key seals nothing", fromAFirstStepNode.startsWith("v2:" + KEY_ID_1 + ":"));
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, null, singletonList(KEY_1), null,
-                EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        System.clearProperty(NEXT_PROP);
+        System.setProperty(PASSWORD_PROP, KEY_2);
+        System.setProperty(PREVIOUS_PROP + "1", KEY_1);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(fromAPromotedNode.startsWith("v2:" + KEY_ID_2 + ":"));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAFirstStepNode));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(beforeTheRotation));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
 
-        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, null, true);
+        System.clearProperty(PREVIOUS_PROP + "1");
+        System.setProperty(PASSWORD_PROP, KEY_1);
+        System.setProperty(NEXT_PROP, KEY_2);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAPromotedNode));
+    }
+
+    /**
+     * Moving the key to the password would also move the default of the legacy key to it, so the legacy key
+     * is named from the first step, by either route.
+     */
+    @Test
+    public void aNextKeyWithoutALegacyPasswordIsRefused() {
+        try {
+            EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, null, true);
+            fail("A next key without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP) && e.getMessage().contains(NEXT_PROP));
+        }
+
+        System.setProperty(NEXT_PROP, KEY_1);
+        try {
+            EncryptionUtils.initializeEncryptor(null, null, null, true);
+            fail("A next key from the configuration without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
     }
 
     @Test
@@ -281,6 +324,7 @@ public class KeyRotationTest {
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         System.setProperty(NEXT_PROP, KEY_1);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
         EncryptionUtils.initializeEncryptor(null, null, null, true);
 
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
@@ -289,12 +333,41 @@ public class KeyRotationTest {
     @Test
     public void theNextKeyNamedAsThePasswordIsRefusedWithThePromotion() {
         try {
-            EncryptionUtils.initializeEncryptor(KEY_1, KEY_1, null, null, null, true);
+            EncryptionUtils.initializeEncryptor(KEY_1, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
             fail("The next key named as the password should be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say to remove the key from the next key, and got: " + e.getMessage(),
                     e.getMessage().contains("remove it from there") && e.getMessage().contains(NEXT_PROP));
         }
+    }
+
+    /**
+     * A passphrase and the raw key it derives are one key, and the message names the move as it does for the
+     * same secret written twice.
+     */
+    @Test
+    public void theNextKeyDerivedFromThePasswordIsRefusedWithThePromotion() {
+        try {
+            EncryptionUtils.initializeEncryptor(PASSPHRASE, KEY_THE_PASSPHRASE_DERIVES, null, null,
+                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            fail("The next key derived from the password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the key id and the move, and got: " + e.getMessage(),
+                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE)
+                            && e.getMessage().contains("remove it from there"));
+        }
+    }
+
+    @Test
+    public void aValueUnderAKeyTheRingLacksNamesWhereToAddIt() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        refusesNaming(underKey2, NEXT_PROP);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        refusesNaming(underKey2, PREVIOUS_PROP + "<n>, with " + LEGACY_PASSWORD_PROP);
     }
 
     @Test
@@ -314,7 +387,8 @@ public class KeyRotationTest {
     public void aTokenOrABlankValueIsRefusedAsTheNextKey() {
         for (String notAKey : asList(EncryptionUtils.SHIPPED_KEY_TOKEN, EncryptionUtils.NO_KEY_TOKEN, " ")) {
             try {
-                EncryptionUtils.initializeEncryptor(KEY_2, notAKey, null, null, null, true);
+                EncryptionUtils.initializeEncryptor(KEY_2, notAKey, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                        true);
                 fail("'" + notAKey + "' should be refused as the next key");
             } catch (IllegalArgumentException e) {
                 assertTrue("The message should name the next key, and got: " + e.getMessage(),

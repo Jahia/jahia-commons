@@ -7,7 +7,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +44,9 @@ public class KeyConfigurationScenariosTest {
     private static final String UNMARKED_UNDER_SHIPPED = "j+9rrpqFfEUdZiep6qzPj5Et7spc49pWmeG/3LbZZ5xxtWwQsj9NbA==";
     private static final String UNMARKED_WRITTEN_BY_THE_SITE = "7kcOkZ+19f6zRCgU6bo+c4JZa9UWfH6MmpnphkCHxTA=";
 
+    /** How a setting reaches the library: passed by the application, or read from the configuration. */
+    private enum Route { ARGUMENT, CONFIGURATION }
+
     private final Map<String, String> markedUnder = new LinkedHashMap<>();
 
     @Before
@@ -59,62 +61,64 @@ public class KeyConfigurationScenariosTest {
 
     @After
     public void clearConfiguration() {
-        System.clearProperty(PASSWORD_PROP);
-        System.clearProperty(NEXT_PROP);
-        System.clearProperty(LEGACY_PASSWORD_PROP);
-        for (int n = 0; n <= 3; n++) {
-            System.clearProperty(PREVIOUS_PROP + n);
-        }
+        clearProperties();
         EncryptionUtils.initializeEncryptor(null, null, null, true);
     }
 
     /**
-     * The password unset, passed by the application, or read from the configuration; the next key unset or
-     * set; a read-only key unset or set; the legacy password unset, the shipped token, a password of the
-     * installation's own, or the token that closes its reader. 48 combinations.
+     * The password, the next key and a read-only key, each unset, passed by the application, or read from
+     * the configuration; the legacy password unset, or the shipped token, a password of the installation's
+     * own, or the token that closes its reader, by either route. 189 combinations.
      */
     @Test
     public void everyCombinationOfTheKeySettingsBehavesAsDocumented() {
         List<String> mismatches = new ArrayList<>();
         int combinations = 0;
-        for (String password : asList(null, KEY_1)) {
-            for (boolean passwordFromConfiguration : passwordFromConfiguration(password)) {
-                for (String next : asList(null, KEY_2)) {
-                    for (List<String> previous : asList(Collections.<String>emptyList(), singletonList(KEY_0))) {
-                        for (String legacy : asList(null, SHIPPED, OWN_PASSWORD, NONE)) {
-                            check(new Setup(password, passwordFromConfiguration, next, previous, legacy),
-                                    mismatches);
-                            combinations++;
+        for (Setup password : routes(Setup.nothing(), (setup, route) -> setup.password(KEY_1, route))) {
+            for (Setup next : routes(password, (setup, route) -> setup.next(KEY_2, route))) {
+                for (Setup previous : routes(next, (setup, route) -> setup.previous(KEY_0, route))) {
+                    List<Setup> legacies = new ArrayList<>(singletonList(previous));
+                    for (String legacy : asList(SHIPPED, OWN_PASSWORD, NONE)) {
+                        for (Route route : Route.values()) {
+                            legacies.add(previous.legacy(legacy, route));
                         }
+                    }
+                    for (Setup setup : legacies) {
+                        check(setup, mismatches);
+                        combinations++;
                     }
                 }
             }
         }
-        assertEquals(48, combinations);
+        assertEquals(189, combinations);
         assertTrue(mismatches.size() + " mismatches:\n" + String.join("\n", mismatches), mismatches.isEmpty());
     }
 
     /**
-     * A cluster on the shipped key takes its first key: each step is one rolling restart.
+     * A cluster on the shipped key takes its first key: the first step sets the next key and names the legacy
+     * password, and the second one only moves the key to the password.
      */
     @Test
     public void aFirstKeyFromTheShippedKeyTakesOneRestartPerStep() {
+        Setup named = Setup.nothing().legacy(SHIPPED, Route.CONFIGURATION);
         assertOneRestartPerStep(asList(UNMARKED_UNDER_SHIPPED),
-                new Setup(null, false, null, emptyList(), null),
-                new Setup(null, false, KEY_1, emptyList(), null),
-                new Setup(KEY_1, false, null, emptyList(), SHIPPED));
+                Setup.nothing(),
+                named.next(KEY_1, Route.CONFIGURATION),
+                named.password(KEY_1, Route.CONFIGURATION));
     }
 
     /**
-     * An installation that set a password of its own before it held a key of the marked format takes its
-     * first key.
+     * A site on version 1.1.0 holds its own passphrase in the password, and the unmarked values it wrote under
+     * it. The upgrade makes the passphrase the primary key at once, and a rotation then replaces it.
      */
     @Test
-    public void aFirstKeyOverAPasswordOfTheInstallationsOwnTakesOneRestartPerStep() {
+    public void aSiteWithItsOwnPassphraseUpgradesThenRotatesOneRestartPerStep() {
         assertOneRestartPerStep(asList(UNMARKED_WRITTEN_BY_THE_SITE),
-                new Setup(null, false, null, emptyList(), OWN_PASSWORD),
-                new Setup(null, false, KEY_1, emptyList(), OWN_PASSWORD),
-                new Setup(KEY_1, false, null, emptyList(), OWN_PASSWORD));
+                Setup.nothing().password(OWN_PASSWORD, Route.CONFIGURATION),
+                Setup.nothing().password(OWN_PASSWORD, Route.CONFIGURATION).next(KEY_2, Route.CONFIGURATION)
+                        .legacy(OWN_PASSWORD, Route.CONFIGURATION),
+                Setup.nothing().password(KEY_2, Route.CONFIGURATION).previous(OWN_PASSWORD, Route.CONFIGURATION)
+                        .legacy(OWN_PASSWORD, Route.CONFIGURATION));
     }
 
     /**
@@ -122,10 +126,11 @@ public class KeyConfigurationScenariosTest {
      */
     @Test
     public void aRotationTakesOneRestartPerStep() {
+        Setup named = Setup.nothing().legacy(SHIPPED, Route.CONFIGURATION);
         assertOneRestartPerStep(asList(UNMARKED_UNDER_SHIPPED, markedUnder.get(KEY_1)),
-                new Setup(KEY_1, false, null, emptyList(), SHIPPED),
-                new Setup(KEY_1, false, KEY_2, emptyList(), SHIPPED),
-                new Setup(KEY_2, false, null, singletonList(KEY_1), SHIPPED));
+                named.password(KEY_1, Route.CONFIGURATION),
+                named.password(KEY_1, Route.CONFIGURATION).next(KEY_2, Route.CONFIGURATION),
+                named.password(KEY_2, Route.CONFIGURATION).previous(KEY_1, Route.CONFIGURATION));
     }
 
     /**
@@ -134,14 +139,19 @@ public class KeyConfigurationScenariosTest {
      */
     @Test
     public void retiringTheEarlierKeysTakesOneRestartPerStep() {
+        Setup sealing = Setup.nothing().password(KEY_2, Route.CONFIGURATION);
         assertOneRestartPerStep(asList(markedUnder.get(KEY_2)),
-                new Setup(KEY_2, false, null, singletonList(KEY_1), SHIPPED),
-                new Setup(KEY_2, false, null, emptyList(), SHIPPED),
-                new Setup(KEY_2, false, null, emptyList(), NONE));
+                sealing.previous(KEY_1, Route.CONFIGURATION).legacy(SHIPPED, Route.CONFIGURATION),
+                sealing.legacy(SHIPPED, Route.CONFIGURATION),
+                sealing.legacy(NONE, Route.CONFIGURATION));
     }
 
-    private static List<Boolean> passwordFromConfiguration(String password) {
-        return password == null ? singletonList(false) : asList(false, true);
+    private interface Adding {
+        Setup add(Setup setup, Route route);
+    }
+
+    private static List<Setup> routes(Setup without, Adding adding) {
+        return asList(without, adding.add(without, Route.ARGUMENT), adding.add(without, Route.CONFIGURATION));
     }
 
     private void check(Setup setup, List<String> mismatches) {
@@ -176,7 +186,7 @@ public class KeyConfigurationScenariosTest {
         expectRead(mismatches, setup, "its own new value", written, VALUE, true, true);
         if (!marked) {
             // An unmarked value is written under the legacy key, so a node reading under that key alone reads it.
-            start(new Setup(null, false, null, emptyList(), setup.legacyKey()));
+            start(Setup.nothing().legacy(setup.legacyKey(), Route.ARGUMENT));
             expectRead(mismatches, setup, "its new value, under the legacy key alone", written, VALUE, true, true);
         }
     }
@@ -205,18 +215,43 @@ public class KeyConfigurationScenariosTest {
         assertTrue(String.join("\n", mismatches), mismatches.isEmpty());
     }
 
-    private static boolean start(Setup setup) {
+    private static void clearProperties() {
         System.clearProperty(PASSWORD_PROP);
-        if (setup.passwordFromConfiguration) {
+        System.clearProperty(NEXT_PROP);
+        System.clearProperty(LEGACY_PASSWORD_PROP);
+        for (int n = 0; n <= 3; n++) {
+            System.clearProperty(PREVIOUS_PROP + n);
+        }
+    }
+
+    private static boolean start(Setup setup) {
+        clearProperties();
+        if (setup.passwordRoute == Route.CONFIGURATION) {
             System.setProperty(PASSWORD_PROP, setup.password);
         }
+        if (setup.nextRoute == Route.CONFIGURATION) {
+            System.setProperty(NEXT_PROP, setup.next);
+        }
+        if (setup.previousRoute == Route.CONFIGURATION) {
+            System.setProperty(PREVIOUS_PROP + "1", setup.previous.get(0));
+        }
+        if (setup.legacyRoute == Route.CONFIGURATION) {
+            System.setProperty(LEGACY_PASSWORD_PROP, setup.legacy);
+        }
+        List<String> previous = setup.previous.isEmpty() ? emptyList()
+                : setup.previousRoute == Route.ARGUMENT ? setup.previous : null;
         try {
-            EncryptionUtils.initializeEncryptor(setup.passwordFromConfiguration ? null : setup.password, setup.next,
-                    setup.previous, null, setup.legacy, true);
+            EncryptionUtils.initializeEncryptor(argument(setup.password, setup.passwordRoute),
+                    argument(setup.next, setup.nextRoute), previous, null, argument(setup.legacy, setup.legacyRoute),
+                    true);
             return true;
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    private static String argument(String value, Route route) {
+        return route == Route.ARGUMENT ? value : null;
     }
 
     private static void expect(List<String> mismatches, Setup setup, String what, boolean expected,
@@ -251,35 +286,85 @@ public class KeyConfigurationScenariosTest {
     }
 
     private static String name(String key) {
-        return KEY_0.equals(key) ? "KEY_0" : KEY_1.equals(key) ? "KEY_1" : KEY_2.equals(key) ? "KEY_2" : key;
+        if (KEY_0.equals(key)) {
+            return "KEY_0";
+        }
+        if (KEY_1.equals(key)) {
+            return "KEY_1";
+        }
+        if (KEY_2.equals(key)) {
+            return "KEY_2";
+        }
+        return OWN_PASSWORD.equals(key) ? "own" : key;
     }
 
     /**
-     * One combination of the key settings, and what the documentation says it does.
+     * One combination of the key settings, each with the route it reaches the library by, and what the
+     * documentation says it does.
      */
     private static final class Setup {
 
-        private final String password;
-        private final boolean passwordFromConfiguration;
-        private final String next;
-        private final List<String> previous;
-        private final String legacy;
+        private String password;
+        private Route passwordRoute;
+        private String next;
+        private Route nextRoute;
+        private List<String> previous = emptyList();
+        private Route previousRoute;
+        private String legacy;
+        private Route legacyRoute;
 
-        Setup(String password, boolean passwordFromConfiguration, String next, List<String> previous,
-                String legacy) {
-            this.password = password;
-            this.passwordFromConfiguration = passwordFromConfiguration;
-            this.next = next;
-            this.previous = previous;
-            this.legacy = legacy;
+        static Setup nothing() {
+            return new Setup();
+        }
+
+        Setup password(String key, Route route) {
+            Setup setup = copy();
+            setup.password = key;
+            setup.passwordRoute = route;
+            return setup;
+        }
+
+        Setup next(String key, Route route) {
+            Setup setup = copy();
+            setup.next = key;
+            setup.nextRoute = route;
+            return setup;
+        }
+
+        Setup previous(String key, Route route) {
+            Setup setup = copy();
+            setup.previous = singletonList(key);
+            setup.previousRoute = route;
+            return setup;
+        }
+
+        Setup legacy(String key, Route route) {
+            Setup setup = copy();
+            setup.legacy = key;
+            setup.legacyRoute = route;
+            return setup;
+        }
+
+        private Setup copy() {
+            Setup setup = new Setup();
+            setup.password = password;
+            setup.passwordRoute = passwordRoute;
+            setup.next = next;
+            setup.nextRoute = nextRoute;
+            setup.previous = previous;
+            setup.previousRoute = previousRoute;
+            setup.legacy = legacy;
+            setup.legacyRoute = legacyRoute;
+            return setup;
         }
 
         /**
-         * Read-only keys need a named legacy password, and closing its reader needs a key that seals. The next
-         * key needs neither.
+         * A next key and read-only keys need a named legacy password, and closing its reader needs a key that
+         * seals.
          */
         boolean isRefused() {
-            return (!previous.isEmpty() && legacy == null) || (NONE.equals(legacy) && password == null);
+            boolean opensWithoutSealing = next != null || !previous.isEmpty();
+            return (opensWithoutSealing && legacy == null) || (NONE.equals(legacy) && password == null);
         }
 
         /**
@@ -290,7 +375,7 @@ public class KeyConfigurationScenariosTest {
             if (legacy != null) {
                 return legacy;
             }
-            return passwordFromConfiguration ? password : SHIPPED;
+            return passwordRoute == Route.CONFIGURATION ? password : SHIPPED;
         }
 
         boolean holds(String key) {
@@ -299,10 +384,13 @@ public class KeyConfigurationScenariosTest {
 
         @Override
         public String toString() {
-            return "[password=" + (password == null ? "-" : name(password) + (passwordFromConfiguration
-                    ? " (configuration)" : " (argument)")) + ", next=" + (next == null ? "-" : name(next))
-                    + ", previous=" + (previous.isEmpty() ? "-" : name(previous.get(0))) + ", legacy="
-                    + (legacy == null ? "-" : OWN_PASSWORD.equals(legacy) ? "own" : legacy) + "]";
+            return "[password=" + describe(password, passwordRoute) + ", next=" + describe(next, nextRoute)
+                    + ", previous=" + describe(previous.isEmpty() ? null : previous.get(0), previousRoute)
+                    + ", legacy=" + describe(legacy, legacyRoute) + "]";
+        }
+
+        private static String describe(String key, Route route) {
+            return key == null ? "-" : name(key) + " (" + route.name().toLowerCase() + ")";
         }
     }
 }
