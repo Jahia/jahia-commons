@@ -43,6 +43,7 @@
  */
 package org.jahia.commons.encryption;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
@@ -68,6 +69,8 @@ public final class EncryptionUtils {
     private static final String ENCRYPTOR_LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
     private static final String ENCRYPTOR_LEGACY_ALGORITHM_ENV = "JAHIA_COMMONS_ENCRYPTOR_LEGACY_ALGORITHM";
     private static final String ENCRYPTOR_LEGACY_ALGORITHM_PROP = "jahia-commons.encryptor.legacy.algorithm";
+    private static final String ENCRYPTOR_NEXT_ENV = "JAHIA_COMMONS_ENCRYPTOR_NEXT";
+    private static final String ENCRYPTOR_NEXT_PROP = "jahia-commons.encryptor.next";
     private static final String ENCRYPTOR_PREVIOUS_ENV_PREFIX = "JAHIA_COMMONS_ENCRYPTOR_PREVIOUS_";
     private static final String ENCRYPTOR_PREVIOUS_PROP_PREFIX = "jahia-commons.encryptor.previous.";
 
@@ -276,11 +279,57 @@ public final class EncryptionUtils {
      */
     public static void initializeEncryptor(String password, List<String> previousPasswords, String algorithm,
             String legacyPassword, boolean force) {
+        initializeEncryptor(password, null, previousPasswords, algorithm, legacyPassword, force);
+    }
+
+    /**
+     * Allows applications to initialize the encryptor configuration before first use, naming the key about
+     * to seal new values, the keys that read values sealed before the current key replaced them, and the key
+     * that reads a value written before the current value format.
+     * This method should be called during application startup, before any encryption operations.
+     *
+     * <p>The next key opens values and seals none. A cluster names it on every node first, and makes it the
+     * primary key once every node holds it, so that no node meets a value under a key it does not hold.
+     * Without a primary key, new values are still written in the earlier format, and the next key opens the
+     * values that nodes already promoted have sealed.</p>
+     *
+     * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
+     * already been used may cause data encrypted with the previous configuration to become
+     * undecryptable. This option is primarily intended for testing purposes.</p>
+     *
+     * <p>Each passphrase, as the primary key, as the next key or as a read-only key, is stretched once when
+     * the encryptor is built, which takes about half a second per key. Call this method at startup so that
+     * the first encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
+     *
+     * <p>Read-only keys open values carrying the format marker only. A value carrying no marker is read with
+     * the legacy password, so the password that wrote such values is named there, and this method refuses
+     * read-only keys when no legacy password is named, by the argument or by the configuration.</p>
+     *
+     * @param password the encryption password, which seals every new value (optional, will use
+     *            config/default if null)
+     * @param nextPassword the password about to become the encryption password, which only reads values
+     *            carrying the format marker (optional, will use the {@code jahia-commons.encryptor.next}
+     *            configuration if null)
+     * @param previousPasswords the passwords that only read values carrying the format marker, each found by
+     *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
+     *            configuration if null; an empty list names none)
+     * @param algorithm the encryption algorithm (optional, will use config/default if null)
+     * @param legacyPassword the password that reads a value carrying no format marker (optional, will use
+     *            config/default if null), {@link #SHIPPED_KEY_TOKEN} for the password shipped with this
+     *            library, or {@link #NO_KEY_TOKEN} to refuse every such value
+     * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
+     * @throws IllegalStateException if the encryptor is already initialized and force is false
+     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
+     *             if one key is named twice, the next key as the encryption password included, if a token is
+     *             set where it is not read, or if read-only keys are named and no legacy password is
+     */
+    public static void initializeEncryptor(String password, String nextPassword, List<String> previousPasswords,
+            String algorithm, String legacyPassword, boolean force) {
         synchronized (ENCRYPTOR_LOCK) {
             if (encryptorInstance != null && !force) {
                 throw new IllegalStateException("Encryptor already initialized. This method must be called before any encryption operations.");
             }
-            encryptorInstance = createEncryptor(password, previousPasswords, algorithm, legacyPassword);
+            encryptorInstance = createEncryptor(password, nextPassword, previousPasswords, algorithm, legacyPassword);
         }
     }
 
@@ -392,14 +441,16 @@ public final class EncryptionUtils {
      * reader for the format that value carries, and seals every new value with one key.
      *
      * @param password the encryption password (if null, uses configuration or default)
+     * @param nextPassword the password about to become the encryption password, reading a marked value only
+     *            (if null, uses configuration)
      * @param previousPasswords the passwords reading a marked value only (if null, uses configuration)
      * @param algorithm the encryption algorithm (if null, uses configuration or default)
      * @param legacyPassword the password reading a value with no format marker (if null, uses configuration
      *            or default)
      * @return configured encryptor instance
      */
-    private static StringEncryptor createEncryptor(String password, List<String> previousPasswords,
-            String algorithm, String legacyPassword) {
+    private static StringEncryptor createEncryptor(String password, String nextPassword,
+            List<String> previousPasswords, String algorithm, String legacyPassword) {
         String configuredSecret =
             ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, null);
         String ownSecret = password != null ? password : configuredSecret;
@@ -416,6 +467,10 @@ public final class EncryptionUtils {
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
+        // The next key does not move the key that wrote the unmarked values, so it needs no legacy password.
+        String nextSecret = nextPassword != null ? nextPassword :
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
+        refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
         if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
@@ -435,9 +490,16 @@ public final class EncryptionUtils {
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
-        KeyRing ring = ownSecret == null ? null : new KeyRing(ownSecret, readOnlySecrets);
-        reportKeys(ownSecret, readOnlySecrets, usingDefaultKey);
-        StringEncryptor writer = ring != null ? ring.primary() : legacyReader;
+        KeyRing ring = null;
+        if (ownSecret != null) {
+            ring = new KeyRing(ownSecret, nextSecret, readOnlySecrets);
+        } else if (nextSecret != null) {
+            // Read-only keys are reported as unused below rather than read: they name keys a primary key
+            // replaced, and there is none yet.
+            ring = new KeyRing(null, nextSecret, Collections.<String>emptyList());
+        }
+        reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey);
+        StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
     }
 
@@ -475,7 +537,8 @@ public final class EncryptionUtils {
         }
     }
 
-    private static void reportKeys(String ownSecret, List<String> readOnlySecrets, boolean usingDefaultKey) {
+    private static void reportKeys(String ownSecret, String nextSecret, List<String> readOnlySecrets,
+            boolean usingDefaultKey) {
         if (ownSecret == null && !readOnlySecrets.isEmpty()) {
             reportUnusedReadOnlyKeysOnce();
         }
@@ -484,9 +547,10 @@ public final class EncryptionUtils {
         }
         if (usingDefaultKey) {
             reportDefaultKeyOnce();
-        } else if (ownSecret == null) {
+        } else if (ownSecret == null && nextSecret == null) {
             // The key is this installation's own, and it reads the stored values rather than sealing new
-            // ones. A node of a cluster reaches this when the key reached its peers and not this node.
+            // ones. A node of a cluster reaches this when the key reached its peers and not this node. A node
+            // that holds the next key reads what its peers seal under it.
             reportEarlierFormatOnce();
         }
     }
@@ -598,7 +662,7 @@ public final class EncryptionUtils {
             synchronized (ENCRYPTOR_LOCK) {
                 if (encryptorInstance == null) {
                     // Use configuration-based initialization if not explicitly initialized
-                    encryptorInstance = createEncryptor(null, null, null, null);
+                    encryptorInstance = createEncryptor(null, null, null, null, null);
                 }
             }
         }

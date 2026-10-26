@@ -9,6 +9,7 @@ import java.util.Base64;
 import org.jasypt.encryption.StringEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
+import org.jasypt.exceptions.EncryptionInitializationException;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 
 /**
@@ -47,10 +48,12 @@ final class JasyptStringEncryptor implements StringEncryptor {
         try {
             byte[] sealed = Base64.getMimeDecoder().decode(encryptedMessage.getBytes(StandardCharsets.US_ASCII));
             plain = reader.decrypt(sealed);
-        } catch (EncryptionOperationNotPossibleException e) {
+        } catch (EncryptionOperationNotPossibleException | EncryptionInitializationException e) {
+            // The byte encryptor initializes on its first decrypt, so a configuration error, such as an
+            // unknown legacy algorithm, surfaces here.
             throw e;
         } catch (RuntimeException e) {
-            throw new EncryptionOperationNotPossibleException();
+            throw new EncryptionOperationNotPossibleException(e);
         }
         try {
             return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)

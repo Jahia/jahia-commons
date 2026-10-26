@@ -20,7 +20,9 @@ final class VersionedStringEncryptor implements StringEncryptor {
 
     /**
      * @param writer the encryptor every new value goes through
-     * @param ring reads a value carrying the marker, or null when no key for that format is available
+     * @param ring reads a value carrying the marker, or null when no key for that format is available. A ring
+     *            without a primary key reads the marked format and seals nothing, as the writer is then the
+     *            legacy reader
      * @param legacyReader reads a value carrying no marker, or null when the installation closed that reader
      * @param usingDefaultKey whether the writer holds the key shipped with this library
      */
@@ -55,7 +57,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
             // it seals its own in the earlier format. The message is what tells that apart from a wrong key.
             throw new EncryptionOperationNotPossibleException("The value carries the "
                     + AesGcmStringEncryptor.MARKER + " marker, and this installation has no key for that "
-                    + "format. Set jahia-commons.encryptor.password to the key the value was sealed with.");
+                    + "format. Set jahia-commons.encryptor.next to the key the value was sealed with, or "
+                    + "jahia-commons.encryptor.password once every node holds it.");
         }
         String keyId = AesGcmStringEncryptor.keyIdIn(encryptedMessage);
         if (keyId == null) {
@@ -67,7 +70,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
         if (key == null) {
             throw new EncryptionOperationNotPossibleException("The value was sealed under the key with id "
                     + keyId + ", and this installation holds no such key. Add that key to "
-                    + "jahia-commons.encryptor.previous.<n> to read the value.");
+                    + "jahia-commons.encryptor.previous.<n>, or to jahia-commons.encryptor.next when it is about "
+                    + "to seal new values, to read the value.");
         }
         return key.decrypt(encryptedMessage);
     }
@@ -75,11 +79,11 @@ final class VersionedStringEncryptor implements StringEncryptor {
     /**
      * @param value a stored value
      * @return whether the value is not under the primary key: it carries no marker, or it names another key,
-     *         whether the ring holds that key or not. Always false when no key seals new values in the marked format, because a
-     *         reseal would then write the value in the format it already has.
+     *         whether the ring holds that key or not. Always false when no key seals new values in the marked
+     *         format, because a reseal would then write the value in the format it already has.
      */
     boolean needsReseal(String value) {
-        if (value == null || ring == null) {
+        if (value == null || isSealingInTheEarlierFormat()) {
             return false;
         }
         return !ring.primary().getKeyId().equals(AesGcmStringEncryptor.keyIdIn(value));
@@ -105,7 +109,7 @@ final class VersionedStringEncryptor implements StringEncryptor {
      *         whenever no key of this installation's own is available to seal them
      */
     boolean isSealingInTheEarlierFormat() {
-        return ring == null;
+        return ring == null || ring.primary() == null;
     }
 
     /**

@@ -1,5 +1,6 @@
 package org.jahia.commons.encryption;
 
+import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -232,6 +233,19 @@ public class VersionedEncryptionTest {
         assertEquals(1, reported.size());
         assertTrue("The report should name the property that is not set, and got: " + reported.get(0),
                 reported.get(0).contains(PASSWORD_PROP));
+    }
+
+    /**
+     * A node that holds the next key reads what its peers seal under it, so the report above would be false.
+     */
+    @Test
+    public void writingInTheEarlierFormatBesideTheNextKeyIsNotReported() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+
+        List<String> reported =
+                reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null, null, true));
+
+        assertEquals(emptyList(), reported);
     }
 
     @Test
