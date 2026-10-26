@@ -534,9 +534,14 @@ public final class EncryptionUtils {
         if ((nextSecret == null && readOnlySecrets.isEmpty()) || namedLegacySecret != null) {
             return;
         }
-        String which = nextSecret == null ? ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> is"
-                : readOnlySecrets.isEmpty() ? ENCRYPTOR_NEXT_PROP + " is"
-                        : ENCRYPTOR_NEXT_PROP + " and " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> are";
+        String which;
+        if (nextSecret == null) {
+            which = ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> is";
+        } else if (readOnlySecrets.isEmpty()) {
+            which = ENCRYPTOR_NEXT_PROP + " is";
+        } else {
+            which = ENCRYPTOR_NEXT_PROP + " and " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> are";
+        }
         // NO_KEY_TOKEN is refused without a key that seals, so it is offered only when one is set.
         String values = "'" + SHIPPED_KEY_TOKEN + "' when none was set, " + (ownSecret == null
                 ? "or the earlier password when one was"
