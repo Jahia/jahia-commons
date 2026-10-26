@@ -20,7 +20,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
 
     /**
      * @param writer the encryptor every new value goes through
-     * @param ring reads a value carrying the marker, or null when no key for that format is available
+     * @param ring reads a value carrying the marker, and seals new values when it holds a primary key; null
+     *            when no key for that format is available
      * @param legacyReader reads a value carrying no marker, or null when the installation closed that reader
      * @param usingDefaultKey whether the writer holds the key shipped with this library
      */
@@ -55,7 +56,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
             // it seals its own in the earlier format. The message is what tells that apart from a wrong key.
             throw new EncryptionOperationNotPossibleException("The value carries the "
                     + AesGcmStringEncryptor.MARKER + " marker, and this installation has no key for that "
-                    + "format. Set jahia-commons.encryptor.password to the key the value was sealed with.");
+                    + "format. Set jahia-commons.encryptor.password to the key the value was sealed with, or "
+                    + "jahia-commons.encryptor.previous.<n> while a cluster takes that key.");
         }
         String keyId = AesGcmStringEncryptor.keyIdIn(encryptedMessage);
         if (keyId == null) {
@@ -79,7 +81,7 @@ final class VersionedStringEncryptor implements StringEncryptor {
      *         reseal would then write the value in the format it already has.
      */
     boolean needsReseal(String value) {
-        if (value == null || ring == null) {
+        if (value == null || isSealingInTheEarlierFormat()) {
             return false;
         }
         return !ring.primary().getKeyId().equals(AesGcmStringEncryptor.keyIdIn(value));
@@ -105,7 +107,7 @@ final class VersionedStringEncryptor implements StringEncryptor {
      *         whenever no key of this installation's own is available to seal them
      */
     boolean isSealingInTheEarlierFormat() {
-        return ring == null;
+        return ring == null || ring.primary() == null;
     }
 
     /**

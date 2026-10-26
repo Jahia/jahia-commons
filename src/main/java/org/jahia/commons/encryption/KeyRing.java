@@ -11,6 +11,9 @@ import java.util.Set;
  * The keys of the marked format an installation holds: one primary key, which seals every new value, and
  * read-only keys, which open the values sealed before the primary key replaced them. Each key is found by
  * the key id a value carries, so a value is tried under one key only.
+ *
+ * <p>A ring of read-only keys alone is the first step of a cluster taking its first key: each node reads
+ * what a node already promoted to that key seals, and still seals in the earlier format itself.</p>
  */
 final class KeyRing {
 
@@ -18,7 +21,7 @@ final class KeyRing {
     private final Map<String, AesGcmStringEncryptor> byKeyId;
 
     /**
-     * @param primarySecret the secret of the key that seals new values
+     * @param primarySecret the secret of the key that seals new values, or null when the ring only opens values
      * @param readOnlySecrets the secrets of the keys that only open values, in the order they were named
      * @throws IllegalArgumentException if two of the secrets are the same, or yield the same key id, which is
      *             the case when one key is named twice, once as a passphrase and once as the key it derives
@@ -26,16 +29,20 @@ final class KeyRing {
     KeyRing(String primarySecret, List<String> readOnlySecrets) {
         // The same secret written twice is caught here, before any passphrase is stretched.
         Set<String> secrets = new HashSet<>();
-        secrets.add(primarySecret);
+        if (primarySecret != null) {
+            secrets.add(primarySecret);
+        }
         for (String secret : readOnlySecrets) {
             if (!secrets.add(secret)) {
                 throw new IllegalArgumentException("One key is named twice. Name each key once, either as the "
                         + "primary key or as a read-only key.");
             }
         }
-        primary = AesGcmStringEncryptor.forSecret(primarySecret);
+        primary = primarySecret == null ? null : AesGcmStringEncryptor.forSecret(primarySecret);
         Map<String, AesGcmStringEncryptor> keys = new LinkedHashMap<>();
-        keys.put(primary.getKeyId(), primary);
+        if (primary != null) {
+            keys.put(primary.getKeyId(), primary);
+        }
         for (String secret : readOnlySecrets) {
             AesGcmStringEncryptor key = AesGcmStringEncryptor.forSecret(secret);
             if (keys.putIfAbsent(key.getKeyId(), key) != null) {
@@ -49,7 +56,7 @@ final class KeyRing {
     }
 
     /**
-     * @return the key that seals new values
+     * @return the key that seals new values, or null when the ring holds read-only keys alone
      */
     AesGcmStringEncryptor primary() {
         return primary;

@@ -104,7 +104,7 @@ public final class EncryptionUtils {
     private static final AtomicBoolean DEPRECATED_ALGORITHM_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean EARLIER_FORMAT_REPORTED = new AtomicBoolean();
     private static final AtomicBoolean PASSPHRASE_REPORTED = new AtomicBoolean();
-    private static final AtomicBoolean UNUSED_READ_ONLY_KEYS_REPORTED = new AtomicBoolean();
+    private static final AtomicBoolean READ_ONLY_KEYS_ALONE_REPORTED = new AtomicBoolean();
 
     // Legacy SHA-1 digester holder for legacy/deprecated methods
     private static class SHA1DigesterHolder {
@@ -310,7 +310,7 @@ public final class EncryptionUtils {
      *
      * @param value a stored value
      * @return false for a value carrying the format marker and no key id, for a key id the ring does not
-     *         hold, for a marked value when no key of this installation's own is set, and for a value carrying
+     *         hold, for a marked value when no key of that format is set, and for a value carrying
      *         no marker once {@link #NO_KEY_TOKEN} closes the reader of that format; true otherwise, null
      *         included
      */
@@ -435,9 +435,12 @@ public final class EncryptionUtils {
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
-        KeyRing ring = ownSecret == null ? null : new KeyRing(ownSecret, readOnlySecrets);
+        // Read-only keys alone still build a ring, so that a cluster taking its first key reads what a node
+        // already promoted to it seals.
+        KeyRing ring =
+            ownSecret == null && readOnlySecrets.isEmpty() ? null : new KeyRing(ownSecret, readOnlySecrets);
         reportKeys(ownSecret, readOnlySecrets, usingDefaultKey);
-        StringEncryptor writer = ring != null ? ring.primary() : legacyReader;
+        StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
     }
 
@@ -477,7 +480,7 @@ public final class EncryptionUtils {
 
     private static void reportKeys(String ownSecret, List<String> readOnlySecrets, boolean usingDefaultKey) {
         if (ownSecret == null && !readOnlySecrets.isEmpty()) {
-            reportUnusedReadOnlyKeysOnce();
+            reportReadOnlyKeysAloneOnce();
         }
         if (ownSecret != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
             reportPassphraseOnce();
@@ -544,7 +547,7 @@ public final class EncryptionUtils {
         DEPRECATED_ALGORITHM_REPORTED.set(false);
         EARLIER_FORMAT_REPORTED.set(false);
         PASSPHRASE_REPORTED.set(false);
-        UNUSED_READ_ONLY_KEYS_REPORTED.set(false);
+        READ_ONLY_KEYS_ALONE_REPORTED.set(false);
     }
 
     private static void reportPassphraseOnce() {
@@ -561,12 +564,14 @@ public final class EncryptionUtils {
         }
     }
 
-    private static void reportUnusedReadOnlyKeysOnce() {
-        if (UNUSED_READ_ONLY_KEYS_REPORTED.compareAndSet(false, true)) {
+    private static void reportReadOnlyKeysAloneOnce() {
+        if (READ_ONLY_KEYS_ALONE_REPORTED.compareAndSet(false, true)) {
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
-                    "Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and no value is read "
-                            + "under them, because " + ENCRYPTOR_PASSWORD_PROP + " is not set. Set it to the key "
-                            + "that seals new values.");
+                    "Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and "
+                            + ENCRYPTOR_PASSWORD_PROP + " is not set. Values carrying the "
+                            + AesGcmStringEncryptor.MARKER + " marker are read under those keys, and new values "
+                            + "are still written in the earlier format. Once every node of a cluster holds the "
+                            + "new key this way, set it as " + ENCRYPTOR_PASSWORD_PROP + ".");
         }
     }
 

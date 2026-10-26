@@ -221,6 +221,46 @@ public class KeyRotationTest {
     }
 
     /**
+     * A cluster on the shipped key takes its first key in two rolling restarts: every node first holds the
+     * key as a read-only key, then each node makes it the primary key. A node at either step reads what a
+     * node at the other step writes.
+     */
+    @Test
+    public void aClusterTakesItsFirstKeyWithEveryNodeReadingTheOthers() {
+        EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
+        String fromAFirstStepNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertFalse("A node at the first step still writes the earlier format",
+                fromAFirstStepNode.startsWith("v2:"));
+        assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertFalse("Nothing is resealed while no key seals", EncryptionUtils.needsReseal(fromAFirstStepNode));
+
+        EncryptionUtils.initializeEncryptor(KEY_1, emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String fromAPromotedNode = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue(fromAPromotedNode.startsWith("v2:" + KEY_ID_1 + ":"));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAFirstStepNode));
+
+        // A node still at the first step, or rolled back to it.
+        EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
+        assertTrue(EncryptionUtils.canDecrypt(fromAPromotedNode));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(fromAPromotedNode));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+    }
+
+    @Test
+    public void readOnlyKeysAloneRefuseAValueUnderAnotherKey() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(null, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                true);
+
+        assertFalse(EncryptionUtils.canDecrypt(underKey2));
+        refusesNaming(underKey2, KEY_ID_2);
+    }
+
+    /**
      * The life of an installation that upgrades: the legacy reader opens the unmarked values beside a ring
      * that holds a read-only key, a reseal moves every value under the primary key, and the legacy reader
      * and the read-only key are then retired.
