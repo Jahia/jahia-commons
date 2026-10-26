@@ -18,9 +18,9 @@ import java.util.Map;
  */
 final class KeyRing {
 
-    private static final String PRIMARY = "jahia-commons.encryptor.password";
-    private static final String NEXT = "jahia-commons.encryptor.next";
-    private static final String READ_ONLY = "jahia-commons.encryptor.previous.<n>";
+    private static final String PRIMARY_ROLE = "jahia-commons.encryptor.password";
+    private static final String NEXT_ROLE = "jahia-commons.encryptor.next";
+    private static final String READ_ONLY_ROLE = "jahia-commons.encryptor.previous.<n>";
 
     private final AesGcmStringEncryptor primary;
     private final Map<String, AesGcmStringEncryptor> byKeyId;
@@ -37,15 +37,15 @@ final class KeyRing {
         List<String> roles = new ArrayList<>();
         if (primarySecret != null) {
             secrets.add(primarySecret);
-            roles.add(PRIMARY);
+            roles.add(PRIMARY_ROLE);
         }
         if (nextSecret != null) {
             secrets.add(nextSecret);
-            roles.add(NEXT);
+            roles.add(NEXT_ROLE);
         }
         for (String secret : readOnlySecrets) {
             secrets.add(secret);
-            roles.add(READ_ONLY);
+            roles.add(READ_ONLY_ROLE);
         }
         // The same secret written twice is caught here, before any passphrase is stretched.
         Map<String, String> roleBySecret = new HashMap<>();
@@ -67,7 +67,7 @@ final class KeyRing {
                 throw namedTwice("The key with id " + key.getKeyId(), earlier, roles.get(i));
             }
             keys.put(key.getKeyId(), key);
-            if (PRIMARY.equals(roles.get(i))) {
+            if (PRIMARY_ROLE.equals(roles.get(i))) {
                 primaryKey = key;
             }
         }
@@ -76,9 +76,9 @@ final class KeyRing {
     }
 
     private static IllegalArgumentException namedTwice(String which, String earlierRole, String role) {
-        if (PRIMARY.equals(earlierRole) && NEXT.equals(role)) {
-            return new IllegalArgumentException(which + " is named as " + NEXT + " and as " + PRIMARY + ". A key "
-                    + "moved to " + PRIMARY + " leaves " + NEXT + ", so remove it from there.");
+        if (PRIMARY_ROLE.equals(earlierRole) && NEXT_ROLE.equals(role)) {
+            return new IllegalArgumentException(which + " is named as " + NEXT_ROLE + " and as " + PRIMARY_ROLE
+                    + ". A key moved to " + PRIMARY_ROLE + " leaves " + NEXT_ROLE + ", so remove it from there.");
         }
         return new IllegalArgumentException(which + " is named twice, as " + earlierRole + " and as " + role
                 + ". Name each key once.");
