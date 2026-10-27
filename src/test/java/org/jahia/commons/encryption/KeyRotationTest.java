@@ -252,7 +252,7 @@ public class KeyRotationTest {
             assertTrue("The message should say named twice, and got: " + e.getMessage(),
                     e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
             assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
-                    e.getMessage().contains("next key and the primary key"));
+                    e.getMessage().contains("promoted"));
         }
     }
 

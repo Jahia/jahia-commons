@@ -70,14 +70,16 @@ final class KeyRing {
     private static IllegalArgumentException namedTwice(String keyId, boolean theNextKeyIsThePrimaryKey) {
         String key = keyId != null ? "The key with id " + keyId : "One key";
         if (theNextKeyIsThePrimaryKey) {
-            return new IllegalArgumentException(key + " is both the next key and the primary key. Once a key is "
-                    + "promoted to the primary key, remove it from the next key, and name the key it replaces as a "
-                    + "read-only key.");
+            return new IllegalArgumentException(key + " is both the next key, in jahia-commons.encryptor.next, and "
+                    + "the primary key, in jahia-commons.encryptor.password. Once a key is promoted to the primary "
+                    + "key, remove it from jahia-commons.encryptor.next, and name the key it replaces in "
+                    + "jahia-commons.encryptor.previous.<n>.");
         }
         // A ring holding one key twice is a configuration that was not meant: the usual one is a primary key
         // left in the read-only list after it was promoted.
         return new IllegalArgumentException(key + " is named twice. Name each key once, either as the primary "
-                + "key, as the next key or as a read-only key.");
+                + "key in jahia-commons.encryptor.password, as the next key in jahia-commons.encryptor.next, or as "
+                + "a read-only key in jahia-commons.encryptor.previous.<n>.");
     }
 
     /**
