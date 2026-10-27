@@ -37,8 +37,9 @@ public class JasyptStringEncryptorTest {
      */
     @Test
     public void anUnknownAlgorithmIsReportedAsAnInitializationError() {
+        JasyptStringEncryptor unknownAlgorithm = new JasyptStringEncryptor("one-password", "NoSuchAlg");
         try {
-            new JasyptStringEncryptor("one-password", "NoSuchAlg").decrypt("AAAAAAAAAAAAAAAAAAAAAA==");
+            unknownAlgorithm.decrypt("AAAAAAAAAAAAAAAAAAAAAA==");
             fail("An unknown algorithm should be reported");
         } catch (EncryptionInitializationException e) {
             assertTrue("The cause should be kept, and got: " + e.getCause(),
@@ -48,8 +49,9 @@ public class JasyptStringEncryptorTest {
 
     @Test
     public void aValueThatIsNotBase64IsRefusedWithItsCause() {
+        JasyptStringEncryptor reader = new JasyptStringEncryptor("one-password", ALGORITHM);
         try {
-            new JasyptStringEncryptor("one-password", ALGORITHM).decrypt("A");
+            reader.decrypt("A");
             fail("A value that is not Base64 should be refused");
         } catch (EncryptionOperationNotPossibleException e) {
             assertTrue("The cause should be kept, and got: " + e.getCause(),

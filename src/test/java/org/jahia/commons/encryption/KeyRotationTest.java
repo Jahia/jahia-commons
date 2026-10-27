@@ -243,9 +243,10 @@ public class KeyRotationTest {
      */
     @Test
     public void aReadOnlyKeyDerivedFromTheNextPassphraseIsRefusedAsNamedTwice() {
+        List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
         try {
-            EncryptionUtils.initializeEncryptor(KEY_1, PASSPHRASE, singletonList(KEY_THE_PASSPHRASE_DERIVES), null,
-                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            EncryptionUtils.initializeEncryptor(KEY_1, PASSPHRASE, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say named twice, and got: " + e.getMessage(),
@@ -458,9 +459,10 @@ public class KeyRotationTest {
      */
     @Test
     public void aReadOnlyKeyDerivedFromThePrimaryPassphraseIsRefusedAsNamedTwice() {
+        List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
         try {
-            EncryptionUtils.initializeEncryptor(PASSPHRASE, null, singletonList(KEY_THE_PASSPHRASE_DERIVES), null,
-                    EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            EncryptionUtils.initializeEncryptor(PASSPHRASE, null, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say named twice, and got: " + e.getMessage(),

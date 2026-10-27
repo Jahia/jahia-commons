@@ -470,7 +470,7 @@ public final class EncryptionUtils {
         String configuredLegacySecret =
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP, null);
         String namedLegacySecret = legacyPassword != null ? legacyPassword : configuredLegacySecret;
-        String legacySecret = namedLegacySecret != null ? namedLegacySecret : legacySecretDefault;
+        String legacySecret = resolveShippedToken(namedLegacySecret != null ? namedLegacySecret : legacySecretDefault);
         // The tokens name the keys that read what is already stored. Sealing under one, or opening marked
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
@@ -481,11 +481,6 @@ public final class EncryptionUtils {
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
         refuseTheNextKeyWithoutALegacyKey(nextSecret, namedLegacySecret);
-        if (SHIPPED_KEY_TOKEN.equals(legacySecret)) {
-            // Resolved after the argument and the configuration, so the token reaches this library by either
-            // route.
-            legacySecret = DEFAULT_PASSWORD;
-        }
         boolean legacyReaderClosed = NO_KEY_TOKEN.equals(legacySecret);
         if (legacyReaderClosed && ownSecret == null) {
             throw new IllegalArgumentException("'" + NO_KEY_TOKEN + "' closes the reader of values carrying no "
@@ -498,14 +493,7 @@ public final class EncryptionUtils {
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
-        KeyRing ring = null;
-        if (ownSecret != null) {
-            ring = new KeyRing(ownSecret, nextSecret, readOnlySecrets);
-        } else if (nextSecret != null) {
-            // Read-only keys are reported as unused below rather than read: they name keys a primary key
-            // replaced, and there is none yet.
-            ring = new KeyRing(null, nextSecret, Collections.<String>emptyList());
-        }
+        KeyRing ring = keyRingOf(ownSecret, nextSecret, readOnlySecrets);
         reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey);
         if (namedLegacySecret == null && configuredSecret != null) {
             // Right for an installation that held this password before the marked format, and wrong for one
@@ -514,6 +502,25 @@ public final class EncryptionUtils {
         }
         StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
+    }
+
+    /**
+     * Resolved after the argument and the configuration, so the token reaches this library by either route.
+     */
+    private static String resolveShippedToken(String legacySecret) {
+        return SHIPPED_KEY_TOKEN.equals(legacySecret) ? DEFAULT_PASSWORD : legacySecret;
+    }
+
+    /**
+     * @return the ring of the marked format, or null when neither a primary key nor a next key is named
+     */
+    private static KeyRing keyRingOf(String ownSecret, String nextSecret, List<String> readOnlySecrets) {
+        if (ownSecret != null) {
+            return new KeyRing(ownSecret, nextSecret, readOnlySecrets);
+        }
+        // Read-only keys are reported as unused rather than read: they name keys a primary key replaced, and
+        // there is none yet.
+        return nextSecret != null ? new KeyRing(null, nextSecret, Collections.<String>emptyList()) : null;
     }
 
     /**
