@@ -5,6 +5,7 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -294,7 +295,7 @@ public class KeyRotationTest {
         } catch (EncryptionOperationNotPossibleException e) {
             assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
                     e.getMessage() != null && e.getMessage().contains(LEGACY_PASSWORD_PROP));
-            assertTrue("The cause should be kept", e.getCause() != null);
+            assertNotNull("The cause should be kept", e.getCause());
             assertFalse("The message should name no key, and got: " + e.getMessage(),
                     e.getMessage().contains(EARLIER_PASSWORD) || e.getMessage().contains(KEY_1)
                             || e.getMessage().contains(EARLIER_ENVELOPE));

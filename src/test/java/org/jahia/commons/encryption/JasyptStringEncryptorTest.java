@@ -1,6 +1,7 @@
 package org.jahia.commons.encryption;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -76,7 +77,7 @@ public class JasyptStringEncryptorTest {
                 // Refused whichever check caught it: the padding, or the strict decoder.
                 assertTrue("The refusal should name the legacy password, and got: " + e.getMessage(),
                         e.getMessage() != null && e.getMessage().contains("jahia-commons.encryptor.legacy.password"));
-                assertTrue("The refusal should keep its cause", e.getCause() != null);
+                assertNotNull("The refusal should keep its cause", e.getCause());
             }
         }
     }
