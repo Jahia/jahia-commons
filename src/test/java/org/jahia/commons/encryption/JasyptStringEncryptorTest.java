@@ -73,7 +73,10 @@ public class JasyptStringEncryptorTest {
                 String read = otherKey.decrypt(sealed);
                 fail("A read under another key should be refused, and it returned: " + read);
             } catch (EncryptionOperationNotPossibleException e) {
-                // refused, as every such read should be
+                // Refused whichever check caught it: the padding, or the strict decoder.
+                assertTrue("The refusal should name the legacy password, and got: " + e.getMessage(),
+                        e.getMessage() != null && e.getMessage().contains("jahia-commons.encryptor.legacy.password"));
+                assertTrue("The refusal should keep its cause", e.getCause() != null);
             }
         }
     }

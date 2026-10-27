@@ -280,6 +280,27 @@ public class KeyRotationTest {
         }
     }
 
+    /**
+     * An installation that ran on the shipped key, and whose legacy key follows a password it set later,
+     * reads its earlier values under the wrong key. The refusal names the property to fix, and neither the
+     * value nor a key.
+     */
+    @Test
+    public void anUnmarkedValueUnderAnotherLegacyKeyIsRefusedNamingTheLegacyPassword() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, EARLIER_PASSWORD, true);
+        try {
+            String decrypted = EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE);
+            fail("Expected the value to be refused, and it read back as: " + decrypted);
+        } catch (EncryptionOperationNotPossibleException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage() != null && e.getMessage().contains(LEGACY_PASSWORD_PROP));
+            assertTrue("The cause should be kept", e.getCause() != null);
+            assertFalse("The message should name no key, and got: " + e.getMessage(),
+                    e.getMessage().contains(EARLIER_PASSWORD) || e.getMessage().contains(KEY_1)
+                            || e.getMessage().contains(EARLIER_ENVELOPE));
+        }
+    }
+
     @Test
     public void canDecryptTruthTable() {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
