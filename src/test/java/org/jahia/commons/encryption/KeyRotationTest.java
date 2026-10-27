@@ -5,6 +5,7 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -23,6 +24,7 @@ public class KeyRotationTest {
     private static final String PASSWORD_PROP = "jahia-commons.encryptor.password";
     private static final String LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
     private static final String PREVIOUS_PROP = "jahia-commons.encryptor.previous.";
+    private static final String NEXT_PROP = "jahia-commons.encryptor.next";
 
     private static final String KEY_1 = "base64:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
     private static final String KEY_2 = "base64:ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4Q=";
@@ -47,6 +49,7 @@ public class KeyRotationTest {
     public void clearConfiguration() {
         System.clearProperty(PASSWORD_PROP);
         System.clearProperty(LEGACY_PASSWORD_PROP);
+        System.clearProperty(NEXT_PROP);
         for (int n = 0; n <= 12; n++) {
             System.clearProperty(PREVIOUS_PROP + n);
         }
@@ -128,6 +131,174 @@ public class KeyRotationTest {
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
                     e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+    }
+
+    /**
+     * A cluster on the shipped key sets its first key: every node names it as the next key, then each node
+     * makes it the primary key. A node still on the first step reads what a promoted node seals, and a node
+     * rolled back from the second step returns to the first.
+     */
+    @Test
+    public void aFirstKeyRollsOutThroughTheNextKey() {
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String sealedOnTheFirstStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertFalse("New values stay in the earlier format", sealedOnTheFirstStep.startsWith("v2:"));
+        assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertFalse("A reseal would write the same format", EncryptionUtils.needsReseal(sealedOnTheFirstStep));
+
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String sealedOnTheSecondStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue(sealedOnTheSecondStep.startsWith("v2:" + KEY_ID_1 + ":"));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
+        assertTrue(EncryptionUtils.needsReseal(sealedOnTheFirstStep));
+
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        assertTrue(EncryptionUtils.canDecrypt(sealedOnTheSecondStep));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheSecondStep));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+    }
+
+    @Test
+    public void aRotationRollsOutThroughTheNextKey() {
+        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String sealedOnTheFirstStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue(sealedOnTheFirstStep.startsWith("v2:" + KEY_ID_1 + ":"));
+
+        EncryptionUtils.initializeEncryptor(KEY_2, null, singletonList(KEY_1), null,
+                EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        String sealedOnTheSecondStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertTrue(sealedOnTheSecondStep.startsWith("v2:" + KEY_ID_2 + ":"));
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
+
+        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheSecondStep));
+        assertFalse("A reseal here would move the value back under the key being retired",
+                EncryptionUtils.needsReseal(sealedOnTheSecondStep));
+        assertFalse(EncryptionUtils.needsReseal(sealedOnTheFirstStep));
+    }
+
+    @Test
+    public void theNextKeyComesFromTheConfiguration() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        System.setProperty(NEXT_PROP, KEY_1);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        EncryptionUtils.initializeEncryptor(null, null, null, true);
+
+        assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
+    @Test
+    public void aValueUnderAKeyOtherThanTheNextOneIsRefusedWithoutAPrimaryKey() {
+        EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
+        String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+
+        assertFalse(EncryptionUtils.canDecrypt(underKey3));
+        refusesNaming(underKey3, EncryptionUtils.keyIdOf(KEY_3));
+    }
+
+    /**
+     * The legacy key follows the encryption password unless it is named, so promoting the next key would read
+     * every unmarked value under it.
+     */
+    @Test
+    public void theNextKeyWithoutALegacyPasswordIsRefused() {
+        for (String password : asList(null, KEY_1)) {
+            try {
+                EncryptionUtils.initializeEncryptor(password, KEY_2, null, null, null, true);
+                fail("A next key without a legacy password should be refused");
+            } catch (IllegalArgumentException e) {
+                assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                        e.getMessage().contains(LEGACY_PASSWORD_PROP));
+            }
+        }
+    }
+
+    @Test
+    public void theNextKeyFromTheConfigurationWithoutALegacyPasswordIsRefused() {
+        System.setProperty(NEXT_PROP, KEY_2);
+        try {
+            EncryptionUtils.initializeEncryptor(null, null, null, true);
+            fail("A next key without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
+        }
+    }
+
+    @Test
+    public void theNextKeyLeftBesideThePrimaryKeyItBecameIsRefusedNamingThePromotion() {
+        refusedWithNextKeyNaming(KEY_1, KEY_1, emptyList(), "promoted");
+        refusedWithNextKeyNaming(KEY_THE_PASSPHRASE_DERIVES, PASSPHRASE, emptyList(), "promoted");
+    }
+
+    /**
+     * A read-only key that collides by key id with the next key, not with the primary key, is a key named
+     * twice and not a promotion.
+     */
+    @Test
+    public void aReadOnlyKeyDerivedFromTheNextPassphraseIsRefusedAsNamedTwice() {
+        List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_1, PASSPHRASE, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
+            fail("Expected the configuration to be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should say named twice, and got: " + e.getMessage(),
+                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
+            assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
+                    e.getMessage().contains("promoted"));
+        }
+    }
+
+    @Test
+    public void theNextKeyNamedAgainAsReadOnlyIsRefused() {
+        refusedWithNextKeyNaming(KEY_2, KEY_1, singletonList(KEY_1), "One key is named twice");
+    }
+
+    @Test
+    public void aTokenIsRefusedAsTheNextKey() {
+        for (String token : asList(EncryptionUtils.NO_KEY_TOKEN, EncryptionUtils.SHIPPED_KEY_TOKEN)) {
+            refusedWithNextKeyNaming(KEY_1, token, emptyList(), NEXT_PROP);
+            refusedWithNextKeyNaming(null, token, emptyList(), NEXT_PROP);
+        }
+    }
+
+    @Test
+    public void noneIsRefusedWithTheNextKeyAlone() {
+        try {
+            EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.NO_KEY_TOKEN, true);
+            fail("Closing the only reader of the format new values are written in should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the property to set first, and got: " + e.getMessage(),
+                    e.getMessage().contains(PASSWORD_PROP));
+        }
+    }
+
+    /**
+     * An installation that ran on the shipped key, and whose legacy key follows a password it set later,
+     * reads its earlier values under the wrong key. The refusal names the property to fix, and neither the
+     * value nor a key.
+     */
+    @Test
+    public void anUnmarkedValueUnderAnotherLegacyKeyIsRefusedNamingTheLegacyPassword() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, EARLIER_PASSWORD, true);
+        try {
+            String decrypted = EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE);
+            fail("Expected the value to be refused, and it read back as: " + decrypted);
+        } catch (EncryptionOperationNotPossibleException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage() != null && e.getMessage().contains(LEGACY_PASSWORD_PROP));
+            assertNotNull("The cause should be kept", e.getCause());
+            assertFalse("The message should name no key, and got: " + e.getMessage(),
+                    e.getMessage().contains(EARLIER_PASSWORD) || e.getMessage().contains(KEY_1)
+                            || e.getMessage().contains(EARLIER_ENVELOPE));
         }
     }
 
@@ -305,6 +476,24 @@ public class KeyRotationTest {
                 KEY_ID_OF_THE_PASSPHRASE);
     }
 
+    /**
+     * A read-only key that collides with the primary key by key id is a key named twice, not a promotion.
+     */
+    @Test
+    public void aReadOnlyKeyDerivedFromThePrimaryPassphraseIsRefusedAsNamedTwice() {
+        List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
+        try {
+            EncryptionUtils.initializeEncryptor(PASSPHRASE, null, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
+            fail("Expected the configuration to be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should say named twice, and got: " + e.getMessage(),
+                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
+            assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
+                    e.getMessage().contains("promoted"));
+        }
+    }
+
     @Test
     public void aNullOrBlankReadOnlyKeyIsRefusedNamingThePropertyOfReadOnlyKeys() {
         refusedAtInitializationNaming(KEY_1, singletonList(null), PREVIOUS_PROP);
@@ -330,6 +519,18 @@ public class KeyRotationTest {
                 assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
                         e.getMessage().contains(expected));
             }
+        }
+    }
+
+    private static void refusedWithNextKeyNaming(String password, String next, List<String> previous,
+            String expected) {
+        try {
+            EncryptionUtils.initializeEncryptor(password, next, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
+            fail("Expected the configuration to be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
+                    e.getMessage().contains(expected));
         }
     }
 

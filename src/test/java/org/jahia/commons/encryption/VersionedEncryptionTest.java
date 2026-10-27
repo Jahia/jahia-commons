@@ -1,5 +1,6 @@
 package org.jahia.commons.encryption;
 
+import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -232,6 +233,56 @@ public class VersionedEncryptionTest {
         assertEquals(1, reported.size());
         assertTrue("The report should name the property that is not set, and got: " + reported.get(0),
                 reported.get(0).contains(PASSWORD_PROP));
+    }
+
+    /**
+     * A node that holds the next key reads what its peers seal under it, so the report above would be false.
+     */
+    @Test
+    public void writingInTheEarlierFormatBesideTheNextKeyIsNotReported() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+
+        List<String> reported =
+                reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null, null, true));
+
+        assertEquals(emptyList(), reported);
+    }
+
+    /**
+     * An installation that ran on the shipped key and sets its first password, without naming the legacy key,
+     * reads its earlier values under the new password. Nothing tells it apart from one that held the password
+     * before, so the library reports it rather than refuses it.
+     */
+    @Test
+    public void aConfiguredPasswordWithoutALegacyPasswordIsReported() {
+        System.setProperty(PASSWORD_PROP, KEY_A);
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The report should name the legacy password and the shipped token, and got: " + reported.get(0),
+                reported.get(0).contains(LEGACY_PASSWORD_PROP)
+                        && reported.get(0).contains(EncryptionUtils.SHIPPED_KEY_TOKEN));
+    }
+
+    @Test
+    public void aConfiguredPasswordBesideALegacyPasswordIsNotReported() {
+        System.setProperty(PASSWORD_PROP, KEY_A);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+        assertEquals(emptyList(), reported);
+    }
+
+    /**
+     * A password the application passes leaves the legacy key on the shipped password, so nothing follows it.
+     */
+    @Test
+    public void aPasswordPassedByTheApplicationIsNotReported() {
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(KEY_A, null, null, true));
+
+        assertEquals(emptyList(), reported);
     }
 
     @Test

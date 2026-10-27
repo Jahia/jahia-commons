@@ -1,5 +1,6 @@
 package org.jahia.commons.encryption;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -9,47 +10,87 @@ import java.util.Set;
 
 /**
  * The keys of the marked format an installation holds: one primary key, which seals every new value, and
- * read-only keys, which open the values sealed before the primary key replaced them. Each key is found by
- * the key id a value carries, so a value is tried under one key only.
+ * read-only keys, which open values without sealing any. The next key is the read-only key about to become
+ * the primary one, and the others open the values sealed before the primary key replaced them. Each key is
+ * found by the key id a value carries, so a value is tried under one key only.
+ *
+ * <p>A ring may hold no primary key, while an installation that seals in the earlier format learns the key
+ * it is about to seal with.</p>
  */
 final class KeyRing {
 
     private final AesGcmStringEncryptor primary;
+    private final String nextKeyId;
     private final Map<String, AesGcmStringEncryptor> byKeyId;
 
     /**
-     * @param primarySecret the secret of the key that seals new values
+     * @param primarySecret the secret of the key that seals new values, or null when none does
+     * @param nextSecret the secret of the key about to become the primary one, or null when none is named
      * @param readOnlySecrets the secrets of the keys that only open values, in the order they were named
      * @throws IllegalArgumentException if two of the secrets are the same, or yield the same key id, which is
      *             the case when one key is named twice, once as a passphrase and once as the key it derives
      */
-    KeyRing(String primarySecret, List<String> readOnlySecrets) {
+    KeyRing(String primarySecret, String nextSecret, List<String> readOnlySecrets) {
+        // The next key comes first, so a collision on it can only be with the primary key: the key left in
+        // the next key after it was promoted.
+        List<String> otherSecrets = new ArrayList<>();
+        if (nextSecret != null) {
+            otherSecrets.add(nextSecret);
+        }
+        otherSecrets.addAll(readOnlySecrets);
         // The same secret written twice is caught here, before any passphrase is stretched.
         Set<String> secrets = new HashSet<>();
-        secrets.add(primarySecret);
-        for (String secret : readOnlySecrets) {
-            if (!secrets.add(secret)) {
-                throw new IllegalArgumentException("One key is named twice. Name each key once, either as the "
-                        + "primary key or as a read-only key.");
+        if (primarySecret != null) {
+            secrets.add(primarySecret);
+        }
+        for (int i = 0; i < otherSecrets.size(); i++) {
+            if (!secrets.add(otherSecrets.get(i))) {
+                throw namedTwice(null, nextSecret != null && i == 0);
             }
         }
-        primary = AesGcmStringEncryptor.forSecret(primarySecret);
+        primary = primarySecret != null ? AesGcmStringEncryptor.forSecret(primarySecret) : null;
         Map<String, AesGcmStringEncryptor> keys = new LinkedHashMap<>();
-        keys.put(primary.getKeyId(), primary);
-        for (String secret : readOnlySecrets) {
-            AesGcmStringEncryptor key = AesGcmStringEncryptor.forSecret(secret);
+        if (primary != null) {
+            keys.put(primary.getKeyId(), primary);
+        }
+        String firstKeyId = null;
+        for (int i = 0; i < otherSecrets.size(); i++) {
+            AesGcmStringEncryptor key = AesGcmStringEncryptor.forSecret(otherSecrets.get(i));
+            if (i == 0) {
+                firstKeyId = key.getKeyId();
+            }
             if (keys.putIfAbsent(key.getKeyId(), key) != null) {
-                // A ring holding one key twice is a configuration that was not meant: the usual one is a
-                // primary key left in the read-only list after it was promoted.
-                throw new IllegalArgumentException("The key with id " + key.getKeyId() + " is named twice. "
-                        + "Name each key once, either as the primary key or as a read-only key.");
+                throw namedTwice(key.getKeyId(), nextSecret != null && i == 0);
             }
         }
+        nextKeyId = nextSecret != null ? firstKeyId : null;
         byKeyId = Collections.unmodifiableMap(keys);
     }
 
+    private static IllegalArgumentException namedTwice(String keyId, boolean theNextKeyIsThePrimaryKey) {
+        String key = keyId != null ? "The key with id " + keyId : "One key";
+        if (theNextKeyIsThePrimaryKey) {
+            return new IllegalArgumentException(key + " is both the next key, in jahia-commons.encryptor.next, and "
+                    + "the primary key, in jahia-commons.encryptor.password. Once a key is promoted to the primary "
+                    + "key, remove it from jahia-commons.encryptor.next, and name the key it replaces in "
+                    + "jahia-commons.encryptor.previous.<n>.");
+        }
+        // A ring holding one key twice is a configuration that was not meant: the usual one is a primary key
+        // left in the read-only list after it was promoted.
+        return new IllegalArgumentException(key + " is named twice. Name each key once, either as the primary "
+                + "key in jahia-commons.encryptor.password, as the next key in jahia-commons.encryptor.next, or as "
+                + "a read-only key in jahia-commons.encryptor.previous.<n>.");
+    }
+
     /**
-     * @return the key that seals new values
+     * @return the key id of the key about to become the primary one, or null when none is named
+     */
+    String nextKeyId() {
+        return nextKeyId;
+    }
+
+    /**
+     * @return the key that seals new values, or null when none does
      */
     AesGcmStringEncryptor primary() {
         return primary;

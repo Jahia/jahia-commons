@@ -9,6 +9,7 @@ import java.util.Base64;
 import org.jasypt.encryption.StringEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEByteEncryptor;
 import org.jasypt.encryption.pbe.StandardPBEStringEncryptor;
+import org.jasypt.exceptions.EncryptionInitializationException;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 
 /**
@@ -20,6 +21,11 @@ import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
  * replacement characters as if they were the value.</p>
  */
 final class JasyptStringEncryptor implements StringEncryptor {
+
+    // Names neither the value nor the key, because the message reaches the logs of the caller.
+    private static final String WRONG_KEY = "The value carries no format marker, and the key that reads such "
+            + "values could not open it. Set jahia-commons.encryptor.legacy.password to the password that wrote "
+            + "it, or to '" + EncryptionUtils.SHIPPED_KEY_TOKEN + "' when none was set.";
 
     private final StandardPBEStringEncryptor writer = new StandardPBEStringEncryptor();
     private final StandardPBEByteEncryptor reader = new StandardPBEByteEncryptor();
@@ -43,21 +49,37 @@ final class JasyptStringEncryptor implements StringEncryptor {
         if (encryptedMessage == null) {
             return null;
         }
+        byte[] sealed;
+        try {
+            sealed = Base64.getMimeDecoder().decode(encryptedMessage.getBytes(StandardCharsets.US_ASCII));
+        } catch (IllegalArgumentException e) {
+            throw refused("The value carries no format marker, and it is not Base64, so it is not an encrypted "
+                    + "value.", e);
+        }
         byte[] plain;
         try {
-            byte[] sealed = Base64.getMimeDecoder().decode(encryptedMessage.getBytes(StandardCharsets.US_ASCII));
             plain = reader.decrypt(sealed);
-        } catch (EncryptionOperationNotPossibleException e) {
+        } catch (EncryptionInitializationException e) {
+            // The byte encryptor initializes on its first decrypt, so a configuration error, such as an
+            // unknown legacy algorithm, surfaces here.
             throw e;
         } catch (RuntimeException e) {
-            throw new EncryptionOperationNotPossibleException();
+            throw refused(WRONG_KEY, e);
         }
         try {
             return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(plain)).toString();
         } catch (CharacterCodingException e) {
-            throw new EncryptionOperationNotPossibleException("The value carries no format marker, and it does "
-                    + "not read as text under jahia-commons.encryptor.legacy.password, so another key wrote it.");
+            throw refused(WRONG_KEY, e);
         }
+    }
+
+    /**
+     * jasypt's exception takes a message or a cause, and not both.
+     */
+    private static EncryptionOperationNotPossibleException refused(String message, Throwable cause) {
+        EncryptionOperationNotPossibleException refusal = new EncryptionOperationNotPossibleException(message);
+        refusal.initCause(cause);
+        return refusal;
     }
 }
