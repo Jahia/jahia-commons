@@ -311,7 +311,7 @@ public final class EncryptionUtils {
      *            config/default if null)
      * @param nextPassword the password about to become the encryption password, which only reads values
      *            carrying the format marker (optional, will use the {@code jahia-commons.encryptor.next}
-     *            configuration if null; an empty or blank string names none)
+     *            configuration if null; an empty string names none, and a blank one is refused)
      * @param previousPasswords the passwords that only read values carrying the format marker, each found by
      *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
      *            configuration if null; an empty list names none)
@@ -450,7 +450,7 @@ public final class EncryptionUtils {
      *
      * @param password the encryption password (if null, uses configuration or default)
      * @param nextPassword the password about to become the encryption password, reading a marked value only
-     *            (if null, uses configuration; an empty or blank string names none)
+     *            (if null, uses configuration; an empty string names none, and a blank one is refused)
      * @param previousPasswords the passwords reading a marked value only (if null, uses configuration)
      * @param algorithm the encryption algorithm (if null, uses configuration or default)
      * @param legacyPassword the password reading a value with no format marker (if null, uses configuration
@@ -480,8 +480,11 @@ public final class EncryptionUtils {
         String nextSecret = nextPassword;
         if (nextSecret == null) {
             nextSecret = ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
-        } else if (nextSecret.trim().isEmpty()) {
+        } else if (nextSecret.isEmpty()) {
             nextSecret = null;
+        } else if (nextSecret.trim().isEmpty()) {
+            throw new IllegalArgumentException(ENCRYPTOR_NEXT_PROP + " is blank. Pass an empty string to name no next"
+                    + " key, or set the key.");
         }
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);

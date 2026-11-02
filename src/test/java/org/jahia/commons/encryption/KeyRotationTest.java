@@ -207,16 +207,38 @@ public class KeyRotationTest {
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
 
-    /** A blank next key names none too, as a blank value of the configuration counts as unset. */
+    /** A blank next key is refused, as a blank read-only key is, under the name of its own setting. */
     @Test
-    public void aBlankNextKeyNamesNoneAndLeavesTheConfigurationUnread() {
-        System.setProperty(NEXT_PROP, KEY_1);
+    public void aBlankNextKeyIsRefusedNamingTheNextKey() {
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_1, "  ", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+                    true);
+            fail("A blank next key should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name " + NEXT_PROP + ", and got: " + e.getMessage(),
+                    e.getMessage().startsWith(NEXT_PROP));
+        }
+    }
 
-        EncryptionUtils.initializeEncryptor(KEY_1, "  ", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+    /** The call an application makes on every start that names neither a next key nor a legacy key. */
+    @Test
+    public void anEmptyNextKeyWithoutALegacyPasswordStarts() {
+        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
 
-        assertFalse(EncryptionUtils.isSealingInTheEarlierFormat());
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
+    /** A configured next key that is not the primary key reads nothing once an empty one is passed. */
+    @Test
+    public void anEmptyNextKeyLeavesAnotherConfiguredNextKeyUnread() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        System.setProperty(NEXT_PROP, KEY_2);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+
+        refusesNaming(underKey2, null);
     }
 
     /** Without a primary key either, an empty next key names none, so a value under the configured one is unread. */
