@@ -311,7 +311,7 @@ public final class EncryptionUtils {
      *            config/default if null)
      * @param nextPassword the password about to become the encryption password, which only reads values
      *            carrying the format marker (optional, will use the {@code jahia-commons.encryptor.next}
-     *            configuration if null)
+     *            configuration if null; an empty string names none)
      * @param previousPasswords the passwords that only read values carrying the format marker, each found by
      *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
      *            configuration if null; an empty list names none)
@@ -475,8 +475,11 @@ public final class EncryptionUtils {
         // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
         // spelt like the token.
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
-        String nextSecret = nextPassword != null ? nextPassword :
-            ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
+        // An application that resolves the next key itself passes an empty string, so the configuration does
+        // not hand back a key the application left out.
+        String nextSecret = nextPassword == null ?
+            ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null) :
+            nextPassword.isEmpty() ? null : nextPassword;
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);

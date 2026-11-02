@@ -192,6 +192,35 @@ public class KeyRotationTest {
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
 
+    /**
+     * An application that left a configured next key out, because it is the primary key of that node, passes an
+     * empty string, and the configuration does not bring it back as a key named twice.
+     */
+    @Test
+    public void anEmptyNextKeyNamesNoneAndLeavesTheConfigurationUnread() {
+        System.setProperty(NEXT_PROP, KEY_1);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+
+        assertFalse(EncryptionUtils.isSealingInTheEarlierFormat());
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
+    /** Without a primary key either, an empty next key names none, so a value under the configured one is unread. */
+    @Test
+    public void anEmptyNextKeyWithoutAPrimaryKeyNamesNone() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        System.setProperty(NEXT_PROP, KEY_1);
+
+        EncryptionUtils.initializeEncryptor(null, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+
+        assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+        refusesNaming(underKey1, null);
+    }
+
     @Test
     public void aValueUnderAKeyOtherThanTheNextOneIsRefusedWithoutAPrimaryKey() {
         EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
