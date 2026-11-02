@@ -323,8 +323,8 @@ public final class EncryptionUtils {
      * @throws IllegalStateException if the encryptor is already initialized and force is false
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
      *             if one key is named twice, the next key as the encryption password included, if a token is
-     *             set where it is not read, or if read-only keys or a next key are named and no legacy password
-     *             is
+     *             set where it is not read, if read-only keys or a next key are named and no legacy password
+     *             is, or if the next key passed is blank
      */
     public static void initializeEncryptor(String password, String nextPassword, List<String> previousPasswords,
             String algorithm, String legacyPassword, boolean force) {
@@ -483,8 +483,9 @@ public final class EncryptionUtils {
         } else if (nextSecret.isEmpty()) {
             nextSecret = null;
         } else if (nextSecret.trim().isEmpty()) {
-            throw new IllegalArgumentException(ENCRYPTOR_NEXT_PROP + " is blank. Pass an empty string to name no next"
-                    + " key, or set the key.");
+            // The configuration route treats a blank value as unset, so only an argument reaches this.
+            throw new IllegalArgumentException("The next key passed as an argument is blank. Pass an empty string to"
+                    + " name no next key, or the key itself.");
         }
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);

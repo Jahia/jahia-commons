@@ -207,7 +207,7 @@ public class KeyRotationTest {
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
 
-    /** A blank next key is refused, as a blank read-only key is, under the name of its own setting. */
+    /** A blank next key is refused, as a blank read-only key is. Only an argument can be blank. */
     @Test
     public void aBlankNextKeyIsRefusedNamingTheNextKey() {
         List<String> noReadOnlyKeys = emptyList();
@@ -216,8 +216,8 @@ public class KeyRotationTest {
                     true);
             fail("A blank next key should be refused");
         } catch (IllegalArgumentException e) {
-            assertTrue("The message should name " + NEXT_PROP + ", and got: " + e.getMessage(),
-                    e.getMessage().startsWith(NEXT_PROP));
+            assertTrue("The message should name the argument, and got: " + e.getMessage(),
+                    e.getMessage().startsWith("The next key passed as an argument is blank"));
         }
     }
 
@@ -226,6 +226,23 @@ public class KeyRotationTest {
     public void anEmptyNextKeyWithoutALegacyPasswordStarts() {
         EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
 
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
+    /**
+     * The call of an application that set a next key in its environment and resolved none: the configured key stays
+     * out of the ring, and no legacy key is asked for.
+     */
+    @Test
+    public void anEmptyNextKeyWithoutALegacyPasswordLeavesTheConfiguredNextKeyOut() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        System.setProperty(NEXT_PROP, KEY_2);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
+
+        refusesNaming(underKey2, null);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
