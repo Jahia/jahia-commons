@@ -207,6 +207,18 @@ public class KeyRotationTest {
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
 
+    /** A blank next key names none too, as a blank value of the configuration counts as unset. */
+    @Test
+    public void aBlankNextKeyNamesNoneAndLeavesTheConfigurationUnread() {
+        System.setProperty(NEXT_PROP, KEY_1);
+
+        EncryptionUtils.initializeEncryptor(KEY_1, "  ", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+
+        assertFalse(EncryptionUtils.isSealingInTheEarlierFormat());
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
+    }
+
     /** Without a primary key either, an empty next key names none, so a value under the configured one is unread. */
     @Test
     public void anEmptyNextKeyWithoutAPrimaryKeyNamesNone() {

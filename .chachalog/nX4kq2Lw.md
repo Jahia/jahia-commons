@@ -1,5 +1,5 @@
 ---
-jahia-commons: patch
+jahia-commons: minor
 ---
 
-`EncryptionUtils.initializeEncryptor` now takes an empty string as the next key to name none, and then leaves `jahia-commons.encryptor.next` and `JAHIA_COMMONS_ENCRYPTOR_NEXT` unread. An application that resolves its keys itself passes it, so a next key it left out does not come back from the configuration. A null next key still reads the configuration.
+Added a way for an application that resolves its own keys to name no next key, so the configured one is not read.
