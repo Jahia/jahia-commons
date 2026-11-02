@@ -210,8 +210,9 @@ public class KeyRotationTest {
     /** A blank next key is refused, as a blank read-only key is, under the name of its own setting. */
     @Test
     public void aBlankNextKeyIsRefusedNamingTheNextKey() {
+        List<String> noReadOnlyKeys = emptyList();
         try {
-            EncryptionUtils.initializeEncryptor(KEY_1, "  ", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
+            EncryptionUtils.initializeEncryptor(KEY_1, "  ", noReadOnlyKeys, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
                     true);
             fail("A blank next key should be refused");
         } catch (IllegalArgumentException e) {
