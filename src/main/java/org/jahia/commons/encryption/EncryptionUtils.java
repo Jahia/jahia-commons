@@ -477,9 +477,12 @@ public final class EncryptionUtils {
         refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
         // An application that resolves the next key itself passes an empty string, so the configuration does
         // not hand back a key the application left out.
-        String nextSecret = nextPassword == null ?
-            ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null) :
-            nextPassword.isEmpty() ? null : nextPassword;
+        String nextSecret = nextPassword;
+        if (nextSecret == null) {
+            nextSecret = ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
+        } else if (nextSecret.isEmpty()) {
+            nextSecret = null;
+        }
         refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
         List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
