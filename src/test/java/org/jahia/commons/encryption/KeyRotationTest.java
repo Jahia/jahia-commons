@@ -242,7 +242,7 @@ public class KeyRotationTest {
 
         EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
 
-        refusesNaming(underKey2, null);
+        refusesNaming(underKey2, KEY_ID_2);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
@@ -256,7 +256,7 @@ public class KeyRotationTest {
 
         EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
 
-        refusesNaming(underKey2, null);
+        refusesNaming(underKey2, KEY_ID_2);
     }
 
     /** Without a primary key either, an empty next key names none, so a value under the configured one is unread. */
@@ -270,7 +270,7 @@ public class KeyRotationTest {
 
         assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
-        refusesNaming(underKey1, null);
+        refusesNaming(underKey1, "no key for that format");
     }
 
     @Test

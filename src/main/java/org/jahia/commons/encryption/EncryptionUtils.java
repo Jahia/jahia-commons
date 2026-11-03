@@ -311,7 +311,7 @@ public final class EncryptionUtils {
      *            config/default if null)
      * @param nextPassword the password about to become the encryption password, which only reads values
      *            carrying the format marker (optional, will use the {@code jahia-commons.encryptor.next}
-     *            configuration if null; an empty string names none, and a blank one is refused)
+     *            configuration if null; an empty string names none, and a whitespace-only one is refused)
      * @param previousPasswords the passwords that only read values carrying the format marker, each found by
      *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
      *            configuration if null; an empty list names none)
@@ -324,7 +324,7 @@ public final class EncryptionUtils {
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
      *             if one key is named twice, the next key as the encryption password included, if a token is
      *             set where it is not read, if read-only keys or a next key are named and no legacy password
-     *             is, or if the next key passed is blank
+     *             is, or if the next key passed is whitespace-only
      */
     public static void initializeEncryptor(String password, String nextPassword, List<String> previousPasswords,
             String algorithm, String legacyPassword, boolean force) {
@@ -450,7 +450,7 @@ public final class EncryptionUtils {
      *
      * @param password the encryption password (if null, uses configuration or default)
      * @param nextPassword the password about to become the encryption password, reading a marked value only
-     *            (if null, uses configuration; an empty string names none, and a blank one is refused)
+     *            (if null, uses configuration; an empty string names none, and a whitespace-only one is refused)
      * @param previousPasswords the passwords reading a marked value only (if null, uses configuration)
      * @param algorithm the encryption algorithm (if null, uses configuration or default)
      * @param legacyPassword the password reading a value with no format marker (if null, uses configuration
