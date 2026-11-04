@@ -27,10 +27,11 @@ final class KeyRing {
      * @param primarySecret the secret of the key that seals new values, or null when none does
      * @param nextSecret the secret of the key about to become the primary one, or null when none is named
      * @param readOnlySecrets the secrets of the keys that only open values, in the order they were named
+     * @param names how a refusal names each key
      * @throws IllegalArgumentException if two of the secrets are the same, or yield the same key id, which is
      *             the case when one key is named twice, once as a passphrase and once as the key it derives
      */
-    KeyRing(String primarySecret, String nextSecret, List<String> readOnlySecrets) {
+    KeyRing(String primarySecret, String nextSecret, List<String> readOnlySecrets, EncryptionUtils.KeyNames names) {
         // The next key comes first, so a collision on it can only be with the primary key: the key left in
         // the next key after it was promoted.
         List<String> otherSecrets = new ArrayList<>();
@@ -45,7 +46,7 @@ final class KeyRing {
         }
         for (int i = 0; i < otherSecrets.size(); i++) {
             if (!secrets.add(otherSecrets.get(i))) {
-                throw namedTwice(null, nextSecret != null && i == 0);
+                throw namedTwice(null, nextSecret != null && i == 0, names);
             }
         }
         primary = primarySecret != null ? AesGcmStringEncryptor.forSecret(primarySecret) : null;
@@ -60,15 +61,25 @@ final class KeyRing {
                 firstKeyId = key.getKeyId();
             }
             if (keys.putIfAbsent(key.getKeyId(), key) != null) {
-                throw namedTwice(key.getKeyId(), nextSecret != null && i == 0);
+                throw namedTwice(key.getKeyId(), nextSecret != null && i == 0, names);
             }
         }
         nextKeyId = nextSecret != null ? firstKeyId : null;
         byKeyId = Collections.unmodifiableMap(keys);
     }
 
-    private static IllegalArgumentException namedTwice(String keyId, boolean theNextKeyIsThePrimaryKey) {
+    private static IllegalArgumentException namedTwice(String keyId, boolean theNextKeyIsThePrimaryKey,
+            EncryptionUtils.KeyNames names) {
         String key = keyId != null ? "The key with id " + keyId : "One key";
+        if (!names.configured) {
+            if (theNextKeyIsThePrimaryKey) {
+                return new IllegalArgumentException(key + " is both the next key and the password. Once a key is "
+                        + "promoted to the password, leave it out of the next key, and name the key it replaces "
+                        + "as a read-only key.");
+            }
+            return new IllegalArgumentException(key + " is named twice. Name each key once, as the password, as "
+                    + "the next key or as a read-only key.");
+        }
         if (theNextKeyIsThePrimaryKey) {
             return new IllegalArgumentException(key + " is both the next key, in jahia-commons.encryptor.next, and "
                     + "the primary key, in jahia-commons.encryptor.password. Once a key is promoted to the primary "

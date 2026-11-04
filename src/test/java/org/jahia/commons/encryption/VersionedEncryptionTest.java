@@ -393,7 +393,23 @@ public class VersionedEncryptionTest {
         List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
 
         assertTrue("The report should name the read-only keys, and got: " + reported,
-                reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.")));
+                reported.stream().anyMatch(line -> line.startsWith("Read-only keys are set, and")));
+        assertTrue("The reports of the keys of an application should name no property, and got: " + reported,
+                reported.stream().noneMatch(line -> line.contains("jahia-commons.encryptor.")));
+    }
+
+    @Test
+    public void readOnlyKeysFromTheConfigurationWithoutAKeyThatSealsAreReportedByTheirProperty() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        System.setProperty("jahia-commons.encryptor.previous.1", KEY_A);
+        try {
+            List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+            assertTrue("The report should name the property of the read-only keys, and got: " + reported,
+                    reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.<n>")));
+        } finally {
+            System.clearProperty("jahia-commons.encryptor.previous.1");
+        }
     }
 
     @Test
@@ -503,6 +519,22 @@ public class VersionedEncryptionTest {
                     e.getMessage().contains("character"));
             assertEquals("The decoder's error names a character of the key", null, e.getCause());
         }
+    }
+
+    /** The JVM keeps 8 stretched passphrases, and stretches the eldest again once a ninth is asked for. */
+    @Test
+    public void theStretchedPassphrasesKeptAreBounded() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        List<AesGcmStringEncryptor> stretched = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            stretched.add(AesGcmStringEncryptor.forSecret("passphrase-" + i));
+        }
+
+        assertTrue("The last passphrase stays kept",
+                stretched.get(8) == AesGcmStringEncryptor.forSecret("passphrase-8"));
+        assertTrue("The eldest passphrase is stretched again",
+                stretched.get(0) != AesGcmStringEncryptor.forSecret("passphrase-0"));
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
     }
 
     @Test

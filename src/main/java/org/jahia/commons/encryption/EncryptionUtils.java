@@ -97,6 +97,32 @@ public final class EncryptionUtils {
      */
     public static final String NO_KEY_TOKEN = "__none__";
 
+    /**
+     * How a message names each key: by the property that sets it, when the encryptor reads its configuration,
+     * or by its role, when an application passes {@link EncryptorKeys} and names its settings itself.
+     */
+    static final class KeyNames {
+
+        static final KeyNames CONFIGURATION = new KeyNames(true, ENCRYPTOR_PASSWORD_PROP, ENCRYPTOR_NEXT_PROP,
+                ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>", ENCRYPTOR_LEGACY_PASSWORD_PROP);
+        static final KeyNames ROLES = new KeyNames(false, "the password", "the next key", "a read-only key",
+                "the legacy password");
+
+        final boolean configured;
+        final String password;
+        final String next;
+        final String readOnly;
+        final String legacy;
+
+        private KeyNames(boolean configured, String password, String next, String readOnly, String legacy) {
+            this.configured = configured;
+            this.password = password;
+            this.next = next;
+            this.readOnly = readOnly;
+            this.legacy = legacy;
+        }
+    }
+
     // Default values for backward compatibility
     static final String DEFAULT_PASSWORD = new String(new byte[] { 74, 97, 104, 105, 97, 32, 120, 67, 77, 32, 54, 46, 53 });
 
@@ -303,10 +329,10 @@ public final class EncryptionUtils {
             if (encryptorInstance != null && !force) {
                 throw alreadyInitialized();
             }
-            refuseMisplacedTokens(keys.password(), keys.nextPassword(), keys.previousPasswords());
+            refuseMisplacedTokens(keys.password(), keys.nextPassword(), keys.previousPasswords(), KeyNames.ROLES);
             String algorithm = keys.algorithm() != null ? keys.algorithm() : StandardPBEByteEncryptor.DEFAULT_ALGORITHM;
             encryptorInstance = buildEncryptor(keys.password(), keys.nextPassword(), keys.previousPasswords(),
-                    algorithm, resolveShippedToken(keys.legacyPassword()));
+                    algorithm, resolveShippedToken(keys.legacyPassword()), KeyNames.ROLES);
         }
     }
 
@@ -449,10 +475,11 @@ public final class EncryptionUtils {
         String legacySecret = resolveShippedToken(namedLegacySecret != null ? namedLegacySecret : legacySecretDefault);
         String nextSecret = nextSecretOf();
         List<String> readOnlySecrets = readOnlySecretsOf();
-        refuseMisplacedTokens(ownSecret, nextSecret, readOnlySecrets);
+        refuseMisplacedTokens(ownSecret, nextSecret, readOnlySecrets, KeyNames.CONFIGURATION);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
         refuseTheNextKeyWithoutALegacyKey(nextSecret, namedLegacySecret);
-        StringEncryptor encryptor = buildEncryptor(ownSecret, nextSecret, readOnlySecrets, finalAlgorithm, legacySecret);
+        StringEncryptor encryptor = buildEncryptor(ownSecret, nextSecret, readOnlySecrets, finalAlgorithm, legacySecret,
+                KeyNames.CONFIGURATION);
         if (namedLegacySecret == null && configuredSecret != null) {
             // Right for an installation that held this password before the marked format, and wrong for one
             // that ran on the shipped key and sets its first password now. Nothing here tells them apart.
@@ -469,14 +496,15 @@ public final class EncryptionUtils {
      * @param readOnlySecrets the keys that only open marked values
      * @param algorithm the algorithm of the reader of unmarked values
      * @param legacySecret the key of the reader of unmarked values, the shipped token already resolved
+     * @param names how a message names each key
      */
     private static StringEncryptor buildEncryptor(String ownSecret, String nextSecret, List<String> readOnlySecrets,
-            String algorithm, String legacySecret) {
+            String algorithm, String legacySecret, KeyNames names) {
         boolean legacyReaderClosed = NO_KEY_TOKEN.equals(legacySecret);
         if (legacyReaderClosed && ownSecret == null) {
             throw new IllegalArgumentException("'" + NO_KEY_TOKEN + "' closes the reader of values carrying no "
                     + "format marker, and new values are written in that format until "
-                    + ENCRYPTOR_PASSWORD_PROP + " names a key of this installation's own. Set it first.");
+                    + names.password + " names a key of this installation's own. Set it first.");
         }
 
         StringEncryptor legacyReader = legacyReaderClosed ? null : jasyptEncryptor(legacySecret, algorithm);
@@ -484,8 +512,8 @@ public final class EncryptionUtils {
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
-        KeyRing ring = keyRingOf(ownSecret, nextSecret, readOnlySecrets);
-        reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey);
+        KeyRing ring = keyRingOf(ownSecret, nextSecret, readOnlySecrets, names);
+        reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey, names);
         StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
     }
@@ -495,11 +523,12 @@ public final class EncryptionUtils {
      * with one, is not what they mean, so they are refused rather than taken as a passphrase spelt like the
      * token.
      */
-    private static void refuseMisplacedTokens(String ownSecret, String nextSecret, List<String> readOnlySecrets) {
-        refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
-        refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
+    private static void refuseMisplacedTokens(String ownSecret, String nextSecret, List<String> readOnlySecrets,
+            KeyNames names) {
+        refuseToken(ownSecret, names.password, names);
+        refuseToken(nextSecret, names.next, names);
         for (String readOnlySecret : readOnlySecrets) {
-            refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
+            refuseToken(readOnlySecret, names.readOnly, names);
         }
     }
 
@@ -513,13 +542,14 @@ public final class EncryptionUtils {
     /**
      * @return the ring of the marked format, or null when neither a primary key nor a next key is named
      */
-    private static KeyRing keyRingOf(String ownSecret, String nextSecret, List<String> readOnlySecrets) {
+    private static KeyRing keyRingOf(String ownSecret, String nextSecret, List<String> readOnlySecrets,
+            KeyNames names) {
         if (ownSecret != null) {
-            return new KeyRing(ownSecret, nextSecret, readOnlySecrets);
+            return new KeyRing(ownSecret, nextSecret, readOnlySecrets, names);
         }
         // Read-only keys are reported as unused rather than read: they name keys a primary key replaced, and
         // there is none yet.
-        return nextSecret != null ? new KeyRing(null, nextSecret, Collections.<String>emptyList()) : null;
+        return nextSecret != null ? new KeyRing(null, nextSecret, Collections.<String>emptyList(), names) : null;
     }
 
     /**
@@ -567,28 +597,27 @@ public final class EncryptionUtils {
     }
 
     private static void reportKeys(String ownSecret, String nextSecret, List<String> readOnlySecrets,
-            boolean usingDefaultKey) {
+            boolean usingDefaultKey, KeyNames names) {
         if (ownSecret == null && !readOnlySecrets.isEmpty()) {
-            reportUnusedReadOnlyKeysOnce();
+            reportUnusedReadOnlyKeysOnce(names);
         }
         if (ownSecret != null && !ownSecret.startsWith(AesGcmStringEncryptor.RAW_KEY_PREFIX)) {
-            reportPassphraseOnce();
+            reportPassphraseOnce(names);
         }
         if (usingDefaultKey) {
-            reportDefaultKeyOnce();
+            reportDefaultKeyOnce(names);
         } else if (ownSecret == null && nextSecret == null) {
             // The key is this installation's own, and it reads the stored values rather than sealing new
             // ones. A node of a cluster reaches this when the key reached its peers and not this node. A node
             // that holds the next key reads what its peers seal under it.
-            reportEarlierFormatOnce();
+            reportEarlierFormatOnce(names);
         }
     }
 
-    private static void refuseToken(String secret, String property) {
+    private static void refuseToken(String secret, String key, KeyNames names) {
         if (SHIPPED_KEY_TOKEN.equals(secret) || NO_KEY_TOKEN.equals(secret)) {
-            throw new IllegalArgumentException("'" + secret + "' is read for " + ENCRYPTOR_LEGACY_PASSWORD_PROP
-                    + " alone, and " + property + " takes a key. Set " + property + " to a key of this "
-                    + "installation's own.");
+            throw new IllegalArgumentException("'" + secret + "' is read for " + names.legacy + " alone, and "
+                    + key + " takes a key. Set " + key + " to a key of this installation's own.");
         }
     }
 
@@ -641,27 +670,30 @@ public final class EncryptionUtils {
         LEGACY_KEY_FOLLOWS_PASSWORD_REPORTED.set(false);
     }
 
-    private static void reportPassphraseOnce() {
+    private static void reportPassphraseOnce(KeyNames names) {
         if (PASSPHRASE_REPORTED.compareAndSet(false, true)) {
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
-                    ENCRYPTOR_PASSWORD_PROP + " holds a passphrase, and a passphrase is only as strong as it is "
-                            + "hard to guess. Prefer a key of 32 random bytes, set as '"
+                    capitalized(names.password) + " holds a passphrase, and a passphrase is only as strong as it "
+                            + "is hard to guess. Prefer a key of 32 random bytes, set as '"
                             + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
-                            + "'openssl rand -base64 32' produces. Keep the passphrase as "
-                            + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n> until every value is sealed again. A read-only "
-                            + "key opens values carrying the " + AesGcmStringEncryptor.MARKER + " marker only, so "
-                            + "the password that wrote values carrying no marker goes in "
-                            + ENCRYPTOR_LEGACY_PASSWORD_PROP + ".");
+                            + "'openssl rand -base64 32' produces. Keep the passphrase as " + names.readOnly
+                            + " until every value is sealed again. A read-only key opens values carrying the "
+                            + AesGcmStringEncryptor.MARKER + " marker only, so the password that wrote values "
+                            + "carrying no marker goes in " + names.legacy + ".");
         }
     }
 
-    private static void reportUnusedReadOnlyKeysOnce() {
+    private static void reportUnusedReadOnlyKeysOnce(KeyNames names) {
         if (UNUSED_READ_ONLY_KEYS_REPORTED.compareAndSet(false, true)) {
+            String where = names.configured ? " in " + names.readOnly : "";
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
-                    "Read-only keys are set in " + ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>, and no value is read "
-                            + "under them, because " + ENCRYPTOR_PASSWORD_PROP + " is not set. Set it to the key "
-                            + "that seals new values.");
+                    "Read-only keys are set" + where + ", and no value is read under them, because "
+                            + names.password + " is not set. Set it to the key that seals new values.");
         }
+    }
+
+    private static String capitalized(String name) {
+        return Character.toUpperCase(name.charAt(0)) + name.substring(1);
     }
 
     private static void reportLegacyKeyFollowsPasswordOnce() {
@@ -675,12 +707,11 @@ public final class EncryptionUtils {
         }
     }
 
-    private static void reportEarlierFormatOnce() {
+    private static void reportEarlierFormatOnce(KeyNames names) {
         if (EARLIER_FORMAT_REPORTED.compareAndSet(false, true)) {
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
                     "New values are written in the format earlier versions read, under the key named by "
-                            + ENCRYPTOR_LEGACY_PASSWORD_PROP + ", because " + ENCRYPTOR_PASSWORD_PROP
-                            + " is not set. On a cluster whose other nodes hold that key, this node cannot "
+                            + names.legacy + ", because " + names.password + " is not set. On a cluster whose other nodes hold that key, this node cannot "
                             + "read what they write. Set it here to the same key they hold.");
         }
     }
@@ -689,11 +720,13 @@ public final class EncryptionUtils {
         return new JasyptStringEncryptor(password, algorithm);
     }
 
-    private static void reportDefaultKeyOnce() {
+    private static void reportDefaultKeyOnce(KeyNames names) {
         if (DEFAULT_KEY_REPORTED.compareAndSet(false, true)) {
+            String key = names.configured
+                    ? names.password + ", or the " + ENCRYPTOR_PASSWORD_ENV + " environment variable,"
+                    : names.password;
             Logger.getLogger(EncryptionUtils.class.getName()).warning(
-                "New values are sealed with the password shipped with this library. Set "
-                    + ENCRYPTOR_PASSWORD_PROP + ", or the " + ENCRYPTOR_PASSWORD_ENV + " environment variable,"
+                "New values are sealed with the password shipped with this library. Set " + key
                     + " to a password belonging to this installation.");
         }
     }

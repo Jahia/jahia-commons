@@ -316,8 +316,60 @@ public class KeyRotationTest {
     @Test
     public void aTokenIsRefusedAsTheNextKey() {
         for (String token : asList(EncryptionUtils.NO_KEY_TOKEN, EncryptionUtils.SHIPPED_KEY_TOKEN)) {
-            refusedWithNextKeyNaming(KEY_1, token, emptyList(), NEXT_PROP);
-            refusedWithNextKeyNaming(null, token, emptyList(), NEXT_PROP);
+            refusedWithNextKeyNaming(KEY_1, token, emptyList(), "the next key takes a key");
+            refusedWithNextKeyNaming(null, token, emptyList(), "the next key takes a key");
+        }
+    }
+
+    @Test
+    public void aTokenSetAsTheNextKeyIsRefusedNamingItsProperty() {
+        System.setProperty(NEXT_PROP, EncryptionUtils.NO_KEY_TOKEN);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        try {
+            EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+            fail("A token as the next key should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the property, and got: " + e.getMessage(),
+                    e.getMessage().contains(NEXT_PROP + " takes a key"));
+        }
+    }
+
+    @Test
+    public void theNextKeySetBesideThePasswordItBecameIsRefusedNamingTheProperties() {
+        System.setProperty(PASSWORD_PROP, KEY_1);
+        System.setProperty(NEXT_PROP, KEY_1);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.SHIPPED_KEY_TOKEN);
+        try {
+            EncryptionUtils.initializeEncryptor(null, null, null, true);
+            fail("The next key beside the password it became should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name both properties, and got: " + e.getMessage(),
+                    e.getMessage().contains(NEXT_PROP) && e.getMessage().contains(PASSWORD_PROP));
+        }
+    }
+
+    /**
+     * An application that passes its keys names its settings itself, so a refusal of its keys names each key by
+     * its role, and no property of this library.
+     */
+    @Test
+    public void theRefusalsOfTheKeysOfAnApplicationNameNoProperty() {
+        List<EncryptorKeys.Builder> refused = asList(
+                keys(KEY_1).nextPassword(EncryptionUtils.NO_KEY_TOKEN),
+                keys(EncryptionUtils.SHIPPED_KEY_TOKEN),
+                keys(KEY_1).previousPasswords(singletonList(EncryptionUtils.NO_KEY_TOKEN)),
+                keys(KEY_1).nextPassword(KEY_1),
+                keys(KEY_1).previousPasswords(singletonList(KEY_1)),
+                keys(KEY_THE_PASSPHRASE_DERIVES).previousPasswords(singletonList(PASSPHRASE)),
+                keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
+        for (EncryptorKeys.Builder keys : refused) {
+            try {
+                initialize(keys);
+                fail("Expected the keys to be refused");
+            } catch (IllegalArgumentException e) {
+                assertFalse("The message should name no property, and got: " + e.getMessage(),
+                        e.getMessage().contains("jahia-commons.encryptor."));
+            }
         }
     }
 
@@ -327,8 +379,8 @@ public class KeyRotationTest {
             initialize(keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
             fail("Closing the only reader of the format new values are written in should be refused");
         } catch (IllegalArgumentException e) {
-            assertTrue("The message should name the property to set first, and got: " + e.getMessage(),
-                    e.getMessage().contains(PASSWORD_PROP));
+            assertTrue("The message should name the key to set first, and got: " + e.getMessage(),
+                    e.getMessage().contains("until the password names a key"));
         }
     }
 
