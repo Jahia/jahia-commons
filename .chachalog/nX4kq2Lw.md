@@ -2,4 +2,6 @@
 jahia-commons: minor
 ---
 
-Added `EncryptorKeys` and `EncryptionUtils.initializeEncryptor(EncryptorKeys, boolean)`, for an application that resolves its keys itself. The encryptor holds the keys named in the object and no other, and reads no configuration. The object requires the legacy password: set it to `__shipped__` for the password this library ships, to the earlier password, or to `__none__`. A blank key is refused, and each refusal or warning names a key by its role, such as the next key, rather than by a property. The earlier `initializeEncryptor` methods keep reading the next key and the read-only keys from the configuration.
+Added a way for an application to pass every key of the encryptor itself, with no configuration read.
+
+The application names the legacy password too: `__shipped__` for the password this library ships, the earlier password, or `__none__`. Each refusal and warning then names a key by its role, such as the next key, and not by a property.

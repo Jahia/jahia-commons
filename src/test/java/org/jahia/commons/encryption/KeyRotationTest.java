@@ -233,6 +233,37 @@ public class KeyRotationTest {
     }
 
     @Test
+    public void theRefusalsOfAValueNameEachKeyOfAnApplicationByItsRole() {
+        initialize(keys(KEY_1));
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        initialize(keys(KEY_2));
+        assertEquals("The value was sealed under the key with id " + KEY_ID_1 + ", and this installation holds "
+                + "no such key. Add that key as a read-only key, or as the next key when it is about to seal new "
+                + "values, to read the value.", refusalOf(underKey1));
+
+        initialize(keys(null));
+        assertTrue(refusalOf(underKey1).endsWith("Set the next key to the key the value was sealed with, or the "
+                + "password once every node holds it."));
+
+        initialize(EncryptorKeys.builder().password(KEY_1).legacyPassword(EARLIER_PASSWORD));
+        assertTrue(refusalOf(EARLIER_ENVELOPE).contains("Set the legacy password to the password that wrote it"));
+    }
+
+    @Test
+    public void theRefusalsOfAValueNameEachConfiguredKeyByItsProperty() {
+        EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
+        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+
+        EncryptionUtils.initializeEncryptor(KEY_2, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        assertTrue(refusalOf(underKey1).contains("Add that key to " + PREVIOUS_PROP + "<n>, or to " + NEXT_PROP
+                + " when it is about to seal new values"));
+
+        EncryptionUtils.initializeEncryptor(KEY_1, null, EARLIER_PASSWORD, true);
+        assertTrue(refusalOf(EARLIER_ENVELOPE).contains("Set " + LEGACY_PASSWORD_PROP + " to the password"));
+    }
+
+    @Test
     public void theLegacyPasswordIsRequired() {
         EncryptorKeys.Builder keys = EncryptorKeys.builder().password(KEY_1).nextPassword(KEY_2);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, keys::build);
@@ -621,6 +652,11 @@ public class KeyRotationTest {
             assertTrue("The message should start with " + expected + ", and got: " + e.getMessage(),
                     e.getMessage().startsWith(expected));
         }
+    }
+
+    private static String refusalOf(String value) {
+        return assertThrows(EncryptionOperationNotPossibleException.class,
+                () -> EncryptionUtils.passwordBaseDecrypt(value)).getMessage();
     }
 
     private static void refusesNaming(String value, String expected) {

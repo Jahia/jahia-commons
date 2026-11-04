@@ -43,6 +43,7 @@
  */
 package org.jahia.commons.encryption;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -305,9 +306,11 @@ public final class EncryptionUtils {
      * written in the earlier format, under the legacy password, and the next key opens the values that nodes
      * already promoted have sealed.</p>
      *
-     * <p>Each passphrase, as the primary key, as the next key or as a read-only key, is stretched once per
-     * JVM, which takes about half a second per key. Call this method at startup so that the first encryption
-     * does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
+     * <p>Each passphrase, as the primary key, as the next key or as a read-only key, is stretched, which takes
+     * about half a second per key. Up to 8 passphrases stay stretched, so a rebuild of the ring with the same
+     * keys does not stretch them again, and a passphrase beyond them is stretched again. Call this method at
+     * startup so that the first encryption does not pay it, and prefer {@code base64:} keys, which cost
+     * nothing to build.</p>
      *
      * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
      * already been used may cause data encrypted with the previous configuration to become
@@ -383,8 +386,10 @@ public final class EncryptionUtils {
     /**
      * Returns the key id a value sealed under the given secret carries. It is derived from the secret under
      * a label of its own, so it holds no material of the key that encrypts, and an application can use it to
-     * tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor, and
-     * an encryptor built next with the same passphrase does not stretch it again.
+     * tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor. Up to
+     * 8 passphrases stay stretched, so an encryptor built next with the same passphrase does not stretch it
+     * again, unless 8 others were stretched in between. Building an encryptor forgets every stretched
+     * passphrase its ring does not hold.
      *
      * <p>Every stored value carries this id. For raw key material, it is unique to that key. For a
      * passphrase, it is the same on every installation that holds that passphrase, and testing a guessed
@@ -507,15 +512,30 @@ public final class EncryptionUtils {
                     + names.password + " names a key of this installation's own. Set it first.");
         }
 
-        StringEncryptor legacyReader = legacyReaderClosed ? null : jasyptEncryptor(legacySecret, algorithm);
+        StringEncryptor legacyReader = legacyReaderClosed ? null : jasyptEncryptor(legacySecret, algorithm, names);
         // Without a key of this installation's own, new values stay in the format every version reads, under
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
         KeyRing ring = keyRingOf(ownSecret, nextSecret, readOnlySecrets, names);
+        AesGcmStringEncryptor.keepStretchedOnly(secretsHeldBy(ownSecret, nextSecret, readOnlySecrets));
         reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey, names);
         StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
-        return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
+        return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey, names);
+    }
+
+    /**
+     * @return the secrets the ring built from these keys holds: the read-only keys only beside a primary key,
+     *         as {@link #keyRingOf} builds it
+     */
+    private static List<String> secretsHeldBy(String ownSecret, String nextSecret, List<String> readOnlySecrets) {
+        List<String> held = new ArrayList<>();
+        held.add(ownSecret);
+        held.add(nextSecret);
+        if (ownSecret != null) {
+            held.addAll(readOnlySecrets);
+        }
+        return held;
     }
 
     /**
@@ -673,7 +693,7 @@ public final class EncryptionUtils {
     private static void reportPassphraseOnce(KeyNames names) {
         if (PASSPHRASE_REPORTED.compareAndSet(false, true)) {
             Logger.getLogger(EncryptionUtils.class.getName()).warning(() ->
-                    capitalized(names.password) + " holds a passphrase, and a passphrase is only as strong as it "
+                    (names.configured ? names.password : capitalized(names.password)) + " holds a passphrase, and a passphrase is only as strong as it "
                             + "is hard to guess. Prefer a key of 32 random bytes, set as '"
                             + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
                             + "'openssl rand -base64 32' produces. Keep the passphrase as " + names.readOnly
@@ -717,8 +737,8 @@ public final class EncryptionUtils {
         }
     }
 
-    private static StringEncryptor jasyptEncryptor(String password, String algorithm) {
-        return new JasyptStringEncryptor(password, algorithm);
+    private static StringEncryptor jasyptEncryptor(String password, String algorithm, KeyNames names) {
+        return new JasyptStringEncryptor(password, algorithm, names);
     }
 
     private static void reportDefaultKeyOnce(KeyNames names) {

@@ -383,8 +383,22 @@ public class VersionedEncryptionTest {
                 reportsOf(() -> EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true));
 
         assertEquals(1, reported.size());
+        assertTrue("The report should start with the property, as it is spelt, and got: " + reported.get(0),
+                reported.get(0).startsWith(PASSWORD_PROP + " holds a passphrase"));
         assertTrue("The report should name the raw key prefix, and got: " + reported.get(0),
                 reported.get(0).contains("base64:"));
+    }
+
+    @Test
+    public void aPassphraseOfAnApplicationIsReportedByItsRole() {
+        EncryptorKeys keys = EncryptorKeys.builder().password(SITE_PASSWORD)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build();
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The report should start with the role of the key, and got: " + reported.get(0),
+                reported.get(0).startsWith("The password holds a passphrase"));
     }
 
     @Test
@@ -539,7 +553,26 @@ public class VersionedEncryptionTest {
     }
 
     @Test
-    public void aPassphraseIsStretchedOncePerJvm() {
+    public void aRingBuiltWithoutAPassphraseForgetsIt() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        EncryptionUtils.initializeEncryptor(EncryptorKeys.builder().password(SITE_PASSWORD)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build(), true);
+        EncryptionUtils.keyIdOf("another-passphrase");
+        assertTrue("The passphrase of the ring stays stretched", AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
+        assertTrue("A passphrase whose key id was asked stays stretched until the next ring",
+                AesGcmStringEncryptor.isStretched("another-passphrase"));
+
+        EncryptionUtils.initializeEncryptor(EncryptorKeys.builder().password(KEY_A)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build(), true);
+
+        assertFalse("A passphrase the new ring does not hold is forgotten",
+                AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
+        assertFalse("A passphrase the new ring does not hold is forgotten",
+                AesGcmStringEncryptor.isStretched("another-passphrase"));
+    }
+
+    @Test
+    public void aPassphraseIsStretchedOnceWhileItIsKept() {
         AesGcmStringEncryptor.forgetStretchedPassphrases();
         String keyId = EncryptionUtils.keyIdOf(SITE_PASSWORD);
         AesGcmStringEncryptor first = AesGcmStringEncryptor.forSecret(SITE_PASSWORD);
