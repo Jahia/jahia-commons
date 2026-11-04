@@ -240,10 +240,9 @@ public class VersionedEncryptionTest {
      */
     @Test
     public void writingInTheEarlierFormatBesideTheNextKeyIsNotReported() {
-        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        EncryptorKeys keys = EncryptorKeys.builder().nextPassword(KEY_A).legacyPassword(SITE_PASSWORD).build();
 
-        List<String> reported =
-                reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null, null, true));
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
 
         assertEquals(emptyList(), reported);
     }
@@ -388,10 +387,10 @@ public class VersionedEncryptionTest {
 
     @Test
     public void readOnlyKeysWithoutAKeyThatSealsAreReported() {
-        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        EncryptorKeys keys =
+                EncryptorKeys.builder().previousPasswords(singletonList(KEY_A)).legacyPassword(SITE_PASSWORD).build();
 
-        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null,
-                singletonList(KEY_A), null, null, true));
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
 
         assertTrue("The report should name the read-only keys, and got: " + reported,
                 reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.")));
@@ -500,7 +499,23 @@ public class VersionedEncryptionTest {
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the prefix, and got: " + e.getMessage(),
                     e.getMessage().contains("base64:"));
+            assertFalse("The message should name no character of the key, and got: " + e.getMessage(),
+                    e.getMessage().contains("character"));
+            assertEquals("The decoder's error names a character of the key", null, e.getCause());
         }
+    }
+
+    @Test
+    public void aPassphraseIsStretchedOncePerJvm() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        String keyId = EncryptionUtils.keyIdOf(SITE_PASSWORD);
+        AesGcmStringEncryptor first = AesGcmStringEncryptor.forSecret(SITE_PASSWORD);
+
+        assertTrue("A passphrase whose key id was asked is not stretched again",
+                first == AesGcmStringEncryptor.forSecret(SITE_PASSWORD));
+        assertEquals(keyId, first.getKeyId());
+        EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
+        assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_SITE_PASSWORD));
     }
 
     @Test

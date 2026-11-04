@@ -153,6 +153,26 @@ public class EncryptionUtilsTest {
     }
 
     @Test
+    public void theKeysOfAnApplicationAreRefusedOnceTheEncryptorIsInitialized() {
+        EncryptorKeys keys = EncryptorKeys.builder().legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build();
+        try {
+            EncryptionUtils.initializeEncryptor(keys, true);
+            EncryptionUtils.initializeEncryptor(keys, false);
+            Assert.fail("Expected IllegalStateException when trying to initialize already initialized encryptor");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue("Exception message should mention already initialized",
+                e.getMessage().contains("already initialized"));
+        } finally {
+            EncryptionUtils.initializeEncryptor(null, null, true);
+        }
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void noKeysAreRefused() {
+        EncryptionUtils.initializeEncryptor((EncryptorKeys) null, true);
+    }
+
+    @Test
     public void testSystemPropertiesConfiguration() {
         String originalPassword = System.getProperty("jahia-commons.encryptor.password");
         String originalAlgorithm = System.getProperty("jahia-commons.encryptor.algorithm");

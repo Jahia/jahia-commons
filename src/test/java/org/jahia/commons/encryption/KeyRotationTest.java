@@ -25,6 +25,7 @@ public class KeyRotationTest {
     private static final String LEGACY_PASSWORD_PROP = "jahia-commons.encryptor.legacy.password";
     private static final String PREVIOUS_PROP = "jahia-commons.encryptor.previous.";
     private static final String NEXT_PROP = "jahia-commons.encryptor.next";
+    private static final String LEGACY_ALGORITHM_PROP = "jahia-commons.encryptor.legacy.algorithm";
 
     private static final String KEY_1 = "base64:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
     private static final String KEY_2 = "base64:ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4Q=";
@@ -50,6 +51,7 @@ public class KeyRotationTest {
         System.clearProperty(PASSWORD_PROP);
         System.clearProperty(LEGACY_PASSWORD_PROP);
         System.clearProperty(NEXT_PROP);
+        System.clearProperty(LEGACY_ALGORITHM_PROP);
         for (int n = 0; n <= 12; n++) {
             System.clearProperty(PREVIOUS_PROP + n);
         }
@@ -68,15 +70,14 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertTrue(EncryptionUtils.needsReseal(underKey1));
         String resealed = EncryptionUtils.passwordBaseEncrypt(EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertTrue(resealed.startsWith("v2:" + KEY_ID_2 + ":"));
         assertFalse(EncryptionUtils.needsReseal(resealed));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, emptyList(), null, null, true);
+        initialize(keys(KEY_2));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(resealed));
         refusesNaming(underKey1, KEY_ID_1);
     }
@@ -102,22 +103,12 @@ public class KeyRotationTest {
 
     /**
      * The rotation a passphrase is steered towards: a new primary key, and the earlier password as a
-     * read-only key. Read-only keys open marked values only, so without a legacy password the unmarked values
-     * would be read under the new primary key.
+     * read-only key. Read-only keys open marked values only, so the unmarked values are read under the legacy
+     * password.
      */
     @Test
-    public void readOnlyKeysWithoutALegacyPasswordAreRefused() {
-        List<String> earlierPassword = singletonList(EARLIER_PASSWORD);
-        try {
-            EncryptionUtils.initializeEncryptor(KEY_2, earlierPassword, null, null, true);
-            fail("Read-only keys without a legacy password should be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
-                    e.getMessage().contains(LEGACY_PASSWORD_PROP));
-        }
-
-        System.setProperty(LEGACY_PASSWORD_PROP, EARLIER_PASSWORD);
-        EncryptionUtils.initializeEncryptor(KEY_2, earlierPassword, null, null, true);
+    public void readOnlyKeysBesideALegacyPasswordReadTheUnmarkedValuesUnderIt() {
+        initialize(keys(KEY_2).previousPasswords(singletonList(EARLIER_PASSWORD)).legacyPassword(EARLIER_PASSWORD));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(UNDER_EARLIER_PASSWORD));
     }
 
@@ -141,19 +132,19 @@ public class KeyRotationTest {
      */
     @Test
     public void aFirstKeyRollsOutThroughTheNextKey() {
-        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(null).nextPassword(KEY_1));
         String sealedOnTheFirstStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertFalse("New values stay in the earlier format", sealedOnTheFirstStep.startsWith("v2:"));
         assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
         assertFalse("A reseal would write the same format", EncryptionUtils.needsReseal(sealedOnTheFirstStep));
 
-        EncryptionUtils.initializeEncryptor(KEY_1, null, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(KEY_1));
         String sealedOnTheSecondStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(sealedOnTheSecondStep.startsWith("v2:" + KEY_ID_1 + ":"));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
         assertTrue(EncryptionUtils.needsReseal(sealedOnTheFirstStep));
 
-        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(null).nextPassword(KEY_1));
         assertTrue(EncryptionUtils.canDecrypt(sealedOnTheSecondStep));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheSecondStep));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
@@ -162,17 +153,16 @@ public class KeyRotationTest {
 
     @Test
     public void aRotationRollsOutThroughTheNextKey() {
-        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(KEY_1).nextPassword(KEY_2));
         String sealedOnTheFirstStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(sealedOnTheFirstStep.startsWith("v2:" + KEY_ID_1 + ":"));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, null, singletonList(KEY_1), null,
-                EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         String sealedOnTheSecondStep = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertTrue(sealedOnTheSecondStep.startsWith("v2:" + KEY_ID_2 + ":"));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheFirstStep));
 
-        EncryptionUtils.initializeEncryptor(KEY_1, KEY_2, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(KEY_1).nextPassword(KEY_2));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(sealedOnTheSecondStep));
         assertFalse("A reseal here would move the value back under the key being retired",
                 EncryptionUtils.needsReseal(sealedOnTheSecondStep));
@@ -193,80 +183,48 @@ public class KeyRotationTest {
     }
 
     /**
-     * An application that left a configured next key out, because it is the primary key of that node, passes an
-     * empty string, and the configuration does not bring it back as a key named twice.
+     * The keys an application names are every key the encryptor holds: the keys left in the configuration
+     * are not read, and the configured legacy password and algorithm give way to the ones named.
      */
     @Test
-    public void anEmptyNextKeyNamesNoneAndLeavesTheConfigurationUnread() {
-        System.setProperty(NEXT_PROP, KEY_1);
+    public void theKeysOfAnApplicationLeaveTheConfigurationUnread() {
+        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
+        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
+        String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
+        System.setProperty(NEXT_PROP, KEY_2);
+        System.setProperty(PREVIOUS_PROP + "1", KEY_3);
+        System.setProperty(PASSWORD_PROP, KEY_3);
+        System.setProperty(LEGACY_PASSWORD_PROP, EncryptionUtils.NO_KEY_TOKEN);
+        System.setProperty(LEGACY_ALGORITHM_PROP, "PBEWithMD5AndTripleDES");
 
-        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(KEY_1));
 
         assertFalse(EncryptionUtils.isSealingInTheEarlierFormat());
-        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
-        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
-    }
-
-    /** A blank next key is refused, as a blank read-only key is. Only an argument can be blank. */
-    @Test
-    public void aBlankNextKeyIsRefusedNamingTheNextKey() {
-        List<String> noReadOnlyKeys = emptyList();
-        try {
-            EncryptionUtils.initializeEncryptor(KEY_1, "  ", noReadOnlyKeys, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                    true);
-            fail("A blank next key should be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should name the argument, and got: " + e.getMessage(),
-                    e.getMessage().startsWith("The next key passed as an argument is blank"));
-        }
-    }
-
-    /** The call an application makes on every start that names neither a next key nor a legacy key. */
-    @Test
-    public void anEmptyNextKeyWithoutALegacyPasswordStarts() {
-        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
-
-        String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
-        assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
-    }
-
-    /**
-     * The call of an application that set a next key in its environment and resolved none: the configured key stays
-     * out of the ring, and no legacy key is asked for.
-     */
-    @Test
-    public void anEmptyNextKeyWithoutALegacyPasswordLeavesTheConfiguredNextKeyOut() {
-        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
-        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
-        System.setProperty(NEXT_PROP, KEY_2);
-
-        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, null, true);
-
+        assertTrue(EncryptionUtils.passwordBaseEncrypt(VALUE).startsWith("v2:" + KEY_ID_1 + ":"));
         refusesNaming(underKey2, KEY_ID_2);
+        refusesNaming(underKey3, EncryptionUtils.keyIdOf(KEY_3));
+        assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
+    }
+
+    /** A node whose next key became its primary key names no next key, and the configuration does not bring it back. */
+    @Test
+    public void theKeysOfAnApplicationLeaveAConfiguredNextKeyOutOfTheRing() {
+        System.setProperty(NEXT_PROP, KEY_1);
+
+        initialize(keys(KEY_1));
+
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
     }
 
-    /** A configured next key that is not the primary key reads nothing once an empty one is passed. */
     @Test
-    public void anEmptyNextKeyLeavesAnotherConfiguredNextKeyUnread() {
-        EncryptionUtils.initializeEncryptor(KEY_2, null, null, true);
-        String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
-        System.setProperty(NEXT_PROP, KEY_2);
-
-        EncryptionUtils.initializeEncryptor(KEY_1, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
-
-        refusesNaming(underKey2, KEY_ID_2);
-    }
-
-    /** Without a primary key either, an empty next key names none, so a value under the configured one is unread. */
-    @Test
-    public void anEmptyNextKeyWithoutAPrimaryKeyNamesNone() {
+    public void theKeysOfAnApplicationWithoutAPrimaryKeyLeaveAConfiguredNextKeyUnread() {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
         System.setProperty(NEXT_PROP, KEY_1);
 
-        EncryptionUtils.initializeEncryptor(null, "", emptyList(), null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(null));
 
         assertTrue(EncryptionUtils.isSealingInTheEarlierFormat());
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
@@ -274,11 +232,37 @@ public class KeyRotationTest {
     }
 
     @Test
+    public void theLegacyPasswordIsRequired() {
+        try {
+            EncryptorKeys.builder().password(KEY_1).nextPassword(KEY_2).build();
+            fail("Keys without a legacy password should be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                    e.getMessage().startsWith("The legacy password is required"));
+        }
+    }
+
+    @Test
+    public void aBlankKeyIsRefusedNamingIt() {
+        for (String blank : asList("", "  ")) {
+            refusedByTheBuilderNaming(() -> EncryptorKeys.builder().password(blank), "The password cannot be blank");
+            refusedByTheBuilderNaming(() -> EncryptorKeys.builder().nextPassword(blank),
+                    "The next password cannot be blank");
+            refusedByTheBuilderNaming(() -> EncryptorKeys.builder().legacyPassword(blank),
+                    "The legacy password cannot be blank");
+            refusedByTheBuilderNaming(() -> EncryptorKeys.builder().previousPasswords(singletonList(blank)),
+                    "A previous password cannot be blank");
+        }
+        refusedByTheBuilderNaming(() -> EncryptorKeys.builder().previousPasswords(singletonList(null)),
+                "A previous password cannot be null");
+    }
+
+    @Test
     public void aValueUnderAKeyOtherThanTheNextOneIsRefusedWithoutAPrimaryKey() {
         EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
         String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+        initialize(keys(null).nextPassword(KEY_1));
 
         assertFalse(EncryptionUtils.canDecrypt(underKey3));
         refusesNaming(underKey3, EncryptionUtils.keyIdOf(KEY_3));
@@ -288,19 +272,6 @@ public class KeyRotationTest {
      * The legacy key follows the encryption password unless it is named, so promoting the next key would read
      * every unmarked value under it.
      */
-    @Test
-    public void theNextKeyWithoutALegacyPasswordIsRefused() {
-        for (String password : asList(null, KEY_1)) {
-            try {
-                EncryptionUtils.initializeEncryptor(password, KEY_2, null, null, null, true);
-                fail("A next key without a legacy password should be refused");
-            } catch (IllegalArgumentException e) {
-                assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
-                        e.getMessage().contains(LEGACY_PASSWORD_PROP));
-            }
-        }
-    }
-
     @Test
     public void theNextKeyFromTheConfigurationWithoutALegacyPasswordIsRefused() {
         System.setProperty(NEXT_PROP, KEY_2);
@@ -327,8 +298,7 @@ public class KeyRotationTest {
     public void aReadOnlyKeyDerivedFromTheNextPassphraseIsRefusedAsNamedTwice() {
         List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
         try {
-            EncryptionUtils.initializeEncryptor(KEY_1, PASSPHRASE, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                    true);
+            initialize(keys(KEY_1).nextPassword(PASSPHRASE).previousPasswords(previous));
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say named twice, and got: " + e.getMessage(),
@@ -354,7 +324,7 @@ public class KeyRotationTest {
     @Test
     public void noneIsRefusedWithTheNextKeyAlone() {
         try {
-            EncryptionUtils.initializeEncryptor(null, KEY_1, null, null, EncryptionUtils.NO_KEY_TOKEN, true);
+            initialize(keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
             fail("Closing the only reader of the format new values are written in should be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the property to set first, and got: " + e.getMessage(),
@@ -390,8 +360,7 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
         String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         assertTrue("Null", EncryptionUtils.canDecrypt(null));
@@ -401,7 +370,7 @@ public class KeyRotationTest {
         assertFalse("A value under a key the ring does not hold", EncryptionUtils.canDecrypt(underKey3));
         assertFalse("A marked value without a key id", EncryptionUtils.canDecrypt("v2:AAAA"));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, emptyList(), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        initialize(keys(KEY_2).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
         assertFalse("An unmarked value once its reader is closed", EncryptionUtils.canDecrypt(EARLIER_ENVELOPE));
         assertFalse("A value under a key dropped from the ring", EncryptionUtils.canDecrypt(underKey1));
 
@@ -429,8 +398,7 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         String relabelled = underKey1.replace(KEY_ID_1, KEY_ID_2);
 
         refusesNaming(relabelled, null);
@@ -453,8 +421,7 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_3, null, null, true);
         String underKey3 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         String underKey2 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
         assertFalse("Null holds nothing to reseal", EncryptionUtils.needsReseal(null));
@@ -464,7 +431,7 @@ public class KeyRotationTest {
         assertTrue("A value under a key the ring does not hold", EncryptionUtils.needsReseal(underKey3));
         assertTrue("A marked value without a key id", EncryptionUtils.needsReseal("v2:AAAA"));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
         assertTrue("An unmarked value once its reader is closed", EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
 
         EncryptionUtils.initializeEncryptor(null, null, null, true);
@@ -482,8 +449,7 @@ public class KeyRotationTest {
         EncryptionUtils.initializeEncryptor(KEY_1, null, null, true);
         String underKey1 = EncryptionUtils.passwordBaseEncrypt(VALUE);
 
-        EncryptionUtils.initializeEncryptor(KEY_2, singletonList(KEY_1), null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                true);
+        initialize(keys(KEY_2).previousPasswords(singletonList(KEY_1)));
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(EARLIER_ENVELOPE));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(underKey1));
         assertTrue(EncryptionUtils.needsReseal(EARLIER_ENVELOPE));
@@ -497,7 +463,7 @@ public class KeyRotationTest {
         assertFalse(EncryptionUtils.needsReseal(resealedEarlier));
         assertFalse(EncryptionUtils.needsReseal(resealedUnderKey1));
 
-        EncryptionUtils.initializeEncryptor(KEY_2, emptyList(), null, EncryptionUtils.NO_KEY_TOKEN, true);
+        initialize(keys(KEY_2).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
         assertEquals(EARLIER_VALUE, EncryptionUtils.passwordBaseDecrypt(resealedEarlier));
         assertEquals(VALUE, EncryptionUtils.passwordBaseDecrypt(resealedUnderKey1));
         refusesNaming(EARLIER_ENVELOPE, EncryptionUtils.NO_KEY_TOKEN);
@@ -564,8 +530,7 @@ public class KeyRotationTest {
     public void aReadOnlyKeyDerivedFromThePrimaryPassphraseIsRefusedAsNamedTwice() {
         List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
         try {
-            EncryptionUtils.initializeEncryptor(PASSPHRASE, null, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                    true);
+            initialize(keys(PASSPHRASE).previousPasswords(previous));
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should say named twice, and got: " + e.getMessage(),
@@ -573,12 +538,6 @@ public class KeyRotationTest {
             assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
                     e.getMessage().contains("promoted"));
         }
-    }
-
-    @Test
-    public void aNullOrBlankReadOnlyKeyIsRefusedNamingThePropertyOfReadOnlyKeys() {
-        refusedAtInitializationNaming(KEY_1, singletonList(null), PREVIOUS_PROP);
-        refusedAtInitializationNaming(KEY_1, singletonList("  "), PREVIOUS_PROP);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -593,7 +552,7 @@ public class KeyRotationTest {
     private static void refusedAtInitializationNaming(String password, List<String> previous,
             String expected) {
         try {
-            EncryptionUtils.initializeEncryptor(password, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN, true);
+            initialize(keys(password).previousPasswords(previous));
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             if (expected != null) {
@@ -606,12 +565,30 @@ public class KeyRotationTest {
     private static void refusedWithNextKeyNaming(String password, String next, List<String> previous,
             String expected) {
         try {
-            EncryptionUtils.initializeEncryptor(password, next, previous, null, EncryptionUtils.SHIPPED_KEY_TOKEN,
-                    true);
+            initialize(keys(password).nextPassword(next).previousPasswords(previous));
             fail("Expected the configuration to be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
                     e.getMessage().contains(expected));
+        }
+    }
+
+    /** The keys every value here is read under, with the shipped password reading the unmarked ones. */
+    private static EncryptorKeys.Builder keys(String password) {
+        return EncryptorKeys.builder().password(password).legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN);
+    }
+
+    private static void initialize(EncryptorKeys.Builder keys) {
+        EncryptionUtils.initializeEncryptor(keys.build(), true);
+    }
+
+    private static void refusedByTheBuilderNaming(Runnable naming, String expected) {
+        try {
+            naming.run();
+            fail("Expected the key to be refused");
+        } catch (IllegalArgumentException e) {
+            assertTrue("The message should start with " + expected + ", and got: " + e.getMessage(),
+                    e.getMessage().startsWith(expected));
         }
     }
 

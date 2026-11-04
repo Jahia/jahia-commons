@@ -197,6 +197,11 @@ public final class EncryptionUtils {
      * Allows applications to initialize the encryptor configuration before first use.
      * This method should be called during application startup, before any encryption operations.
      *
+     * <p>The keys this method does not take are read from the configuration: the legacy password, the next
+     * key in {@code jahia-commons.encryptor.next} and the read-only keys in
+     * {@code jahia-commons.encryptor.previous.<n>}. An application that resolves its keys itself calls
+     * {@link #initializeEncryptor(EncryptorKeys, boolean)} instead, which reads none.</p>
+     *
      * @param password the encryption password (optional, will use config/default if null)
      * @param algorithm the encryption algorithm (optional, will use config/default if null)
      * @throws IllegalStateException if the encryptor is already initialized
@@ -208,6 +213,11 @@ public final class EncryptionUtils {
     /**
      * Allows applications to initialize the encryptor configuration before first use.
      * This method should be called during application startup, before any encryption operations.
+     *
+     * <p>The keys this method does not take are read from the configuration: the legacy password, the next
+     * key in {@code jahia-commons.encryptor.next} and the read-only keys in
+     * {@code jahia-commons.encryptor.previous.<n>}. An application that resolves its keys itself calls
+     * {@link #initializeEncryptor(EncryptorKeys, boolean)} instead, which reads none.</p>
      *
      * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
      * already been used may cause data encrypted with the previous configuration to become
@@ -227,6 +237,11 @@ public final class EncryptionUtils {
      * reads a value written before the current value format.
      * This method should be called during application startup, before any encryption operations.
      *
+     * <p>The keys this method does not take are read from the configuration: the next key in
+     * {@code jahia-commons.encryptor.next} and the read-only keys in
+     * {@code jahia-commons.encryptor.previous.<n>}. An application that resolves its keys itself calls
+     * {@link #initializeEncryptor(EncryptorKeys, boolean)} instead, which reads none.</p>
+     *
      * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
@@ -239,101 +254,64 @@ public final class EncryptionUtils {
      *            name this one too, because the configuration default cannot see it.
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
-     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length
+     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
+     *             if one key is named twice, if a token is set where it is not read, or if read-only keys or a
+     *             next key are configured and no legacy password is named, by the argument or by the
+     *             configuration
      */
     public static void initializeEncryptor(String password, String algorithm, String legacyPassword, boolean force) {
-        initializeEncryptor(password, null, algorithm, legacyPassword, force);
+        synchronized (ENCRYPTOR_LOCK) {
+            if (encryptorInstance != null && !force) {
+                throw alreadyInitialized();
+            }
+            encryptorInstance = createEncryptor(password, algorithm, legacyPassword);
+        }
     }
 
     /**
-     * Allows applications to initialize the encryptor configuration before first use, naming the keys that
-     * read values sealed before the current key replaced them, and the key that reads a value written before
-     * the current value format.
+     * Allows an application that resolves its keys itself to initialize the encryptor before first use. The
+     * encryptor holds the keys named in {@code keys} and no other: this method reads no configuration.
      * This method should be called during application startup, before any encryption operations.
+     *
+     * <p>The next key and the read-only keys open values carrying the format marker, and seal none. A
+     * cluster names the next key on every node first, and makes it the primary key once every node holds it,
+     * so that no node meets a value under a key it does not hold. Without a primary key, new values are still
+     * written in the earlier format, under the legacy password, and the next key opens the values that nodes
+     * already promoted have sealed.</p>
+     *
+     * <p>Each passphrase, as the primary key, as the next key or as a read-only key, is stretched once per
+     * JVM, which takes about half a second per key. Call this method at startup so that the first encryption
+     * does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
      *
      * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
      * already been used may cause data encrypted with the previous configuration to become
      * undecryptable. This option is primarily intended for testing purposes.</p>
      *
-     * <p>Each passphrase, as the primary key or as a read-only key, is stretched once when the encryptor is
-     * built, which takes about half a second per key. Call this method at startup so that the first
-     * encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
-     *
-     * <p>Read-only keys open values carrying the format marker only. A value carrying no marker is read with
-     * the legacy password, so the password that wrote such values is named there, and this method refuses
-     * read-only keys when no legacy password is named, by the argument or by the configuration.</p>
-     *
-     * @param password the encryption password, which seals every new value (optional, will use
-     *            config/default if null)
-     * @param previousPasswords the passwords that only read values carrying the format marker, each found by
-     *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
-     *            configuration if null; an empty list names none)
-     * @param algorithm the encryption algorithm (optional, will use config/default if null)
-     * @param legacyPassword the password that reads a value carrying no format marker (optional, will use
-     *            config/default if null), {@link #SHIPPED_KEY_TOKEN} for the password shipped with this
-     *            library, or {@link #NO_KEY_TOKEN} to refuse every such value
-     * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
-     * @throws IllegalStateException if the encryptor is already initialized and force is false
-     * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
-     *             if one key is named twice, if a token is set where it is not read, or if read-only keys are
-     *             named and no legacy password is
-     */
-    public static void initializeEncryptor(String password, List<String> previousPasswords, String algorithm,
-            String legacyPassword, boolean force) {
-        initializeEncryptor(password, null, previousPasswords, algorithm, legacyPassword, force);
-    }
-
-    /**
-     * Allows applications to initialize the encryptor configuration before first use, naming the key about
-     * to seal new values, the keys that read values sealed before the current key replaced them, and the key
-     * that reads a value written before the current value format.
-     * This method should be called during application startup, before any encryption operations.
-     *
-     * <p>The next key opens values and seals none. A cluster names it on every node first, and makes it the
-     * primary key once every node holds it, so that no node meets a value under a key it does not hold.
-     * Without a primary key, new values are still written in the earlier format, and the next key opens the
-     * values that nodes already promoted have sealed.</p>
-     *
-     * <p><strong>WARNING:</strong> Using the force parameter to reinitialize an encryptor that has
-     * already been used may cause data encrypted with the previous configuration to become
-     * undecryptable. This option is primarily intended for testing purposes.</p>
-     *
-     * <p>Each passphrase, as the primary key, as the next key or as a read-only key, is stretched once when
-     * the encryptor is built, which takes about half a second per key. Call this method at startup so that
-     * the first encryption does not pay it, and prefer {@code base64:} keys, which cost nothing to build.</p>
-     *
-     * <p>Read-only keys and the next key open values carrying the format marker only. A value carrying no
-     * marker is read with the legacy password, so the password that wrote such values is named there, and this
-     * method refuses read-only keys and a next key when no legacy password is named, by the argument or by the
-     * configuration.</p>
-     *
-     * @param password the encryption password, which seals every new value (optional, will use
-     *            config/default if null)
-     * @param nextPassword the password about to become the encryption password, which only reads values
-     *            carrying the format marker (optional, will use the {@code jahia-commons.encryptor.next}
-     *            configuration if null; an empty string names none, and a whitespace-only one is refused)
-     * @param previousPasswords the passwords that only read values carrying the format marker, each found by
-     *            the key id a value carries (optional, will use the {@code jahia-commons.encryptor.previous.<n>}
-     *            configuration if null; an empty list names none)
-     * @param algorithm the encryption algorithm (optional, will use config/default if null)
-     * @param legacyPassword the password that reads a value carrying no format marker (optional, will use
-     *            config/default if null), {@link #SHIPPED_KEY_TOKEN} for the password shipped with this
-     *            library, or {@link #NO_KEY_TOKEN} to refuse every such value
+     * @param keys every key the encryptor holds
      * @param force if true, allows reinitializing even if already initialized (USE WITH CAUTION)
      * @throws IllegalStateException if the encryptor is already initialized and force is false
      * @throws IllegalArgumentException if a password declared as raw key material is not of the right length,
      *             if one key is named twice, the next key as the encryption password included, if a token is
-     *             set where it is not read, if read-only keys or a next key are named and no legacy password
-     *             is, or if the next key passed is whitespace-only
+     *             set where it is not read, or if {@link #NO_KEY_TOKEN} closes the reader of values carrying
+     *             no marker while no password seals new values
      */
-    public static void initializeEncryptor(String password, String nextPassword, List<String> previousPasswords,
-            String algorithm, String legacyPassword, boolean force) {
+    public static void initializeEncryptor(EncryptorKeys keys, boolean force) {
+        if (keys == null) {
+            throw new IllegalArgumentException("The keys of the encryptor are required.");
+        }
         synchronized (ENCRYPTOR_LOCK) {
             if (encryptorInstance != null && !force) {
-                throw new IllegalStateException("Encryptor already initialized. This method must be called before any encryption operations.");
+                throw alreadyInitialized();
             }
-            encryptorInstance = createEncryptor(password, nextPassword, previousPasswords, algorithm, legacyPassword);
+            refuseMisplacedTokens(keys.password(), keys.nextPassword(), keys.previousPasswords());
+            String algorithm = keys.algorithm() != null ? keys.algorithm() : StandardPBEByteEncryptor.DEFAULT_ALGORITHM;
+            encryptorInstance = buildEncryptor(keys.password(), keys.nextPassword(), keys.previousPasswords(),
+                    algorithm, resolveShippedToken(keys.legacyPassword()));
         }
+    }
+
+    private static IllegalStateException alreadyInitialized() {
+        return new IllegalStateException("Encryptor already initialized. This method must be called before any encryption operations.");
     }
 
     /**
@@ -379,7 +357,8 @@ public final class EncryptionUtils {
     /**
      * Returns the key id a value sealed under the given secret carries. It is derived from the secret under
      * a label of its own, so it holds no material of the key that encrypts, and an application can use it to
-     * tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor.
+     * tell two keys apart. A passphrase is stretched first, which takes as long as building an encryptor, and
+     * an encryptor built next with the same passphrase does not stretch it again.
      *
      * <p>Every stored value carries this id. For raw key material, it is unique to that key. For a
      * passphrase, it is the same on every installation that holds that passphrase, and testing a guessed
@@ -446,19 +425,16 @@ public final class EncryptionUtils {
 
     /**
      * Creates a new encryptor instance with the specified or configured parameters. It routes a value to the
-     * reader for the format that value carries, and seals every new value with one key.
+     * reader for the format that value carries, and seals every new value with one key. The next key and the
+     * read-only keys come from the configuration.
      *
      * @param password the encryption password (if null, uses configuration or default)
-     * @param nextPassword the password about to become the encryption password, reading a marked value only
-     *            (if null, uses configuration; an empty string names none, and a whitespace-only one is refused)
-     * @param previousPasswords the passwords reading a marked value only (if null, uses configuration)
      * @param algorithm the encryption algorithm (if null, uses configuration or default)
      * @param legacyPassword the password reading a value with no format marker (if null, uses configuration
      *            or default)
      * @return configured encryptor instance
      */
-    private static StringEncryptor createEncryptor(String password, String nextPassword,
-            List<String> previousPasswords, String algorithm, String legacyPassword) {
+    private static StringEncryptor createEncryptor(String password, String algorithm, String legacyPassword) {
         String configuredSecret =
             ConfigurationUtils.getConfigValue(ENCRYPTOR_PASSWORD_ENV, ENCRYPTOR_PASSWORD_PROP, null);
         String ownSecret = password != null ? password : configuredSecret;
@@ -471,26 +447,31 @@ public final class EncryptionUtils {
             ConfigurationUtils.getConfigValue(ENCRYPTOR_LEGACY_PASSWORD_ENV, ENCRYPTOR_LEGACY_PASSWORD_PROP, null);
         String namedLegacySecret = legacyPassword != null ? legacyPassword : configuredLegacySecret;
         String legacySecret = resolveShippedToken(namedLegacySecret != null ? namedLegacySecret : legacySecretDefault);
-        // The tokens name the keys that read what is already stored. Sealing under one, or opening marked
-        // values with one, is not what they mean, so they are refused here rather than taken as a passphrase
-        // spelt like the token.
-        refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
-        // An application that resolves the next key itself passes an empty string, so the configuration does
-        // not hand back a key the application left out.
-        String nextSecret = nextPassword;
-        if (nextSecret == null) {
-            nextSecret = ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
-        } else if (nextSecret.isEmpty()) {
-            nextSecret = null;
-        } else if (nextSecret.trim().isEmpty()) {
-            // The configuration route treats a blank value as unset, so only an argument reaches this.
-            throw new IllegalArgumentException("The next key passed as an argument is blank. Pass an empty string to"
-                    + " name no next key, or the key itself.");
-        }
-        refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
-        List<String> readOnlySecrets = readOnlySecretsOf(previousPasswords);
+        String nextSecret = nextSecretOf();
+        List<String> readOnlySecrets = readOnlySecretsOf();
+        refuseMisplacedTokens(ownSecret, nextSecret, readOnlySecrets);
         refuseReadOnlyKeysWithoutALegacyKey(readOnlySecrets, namedLegacySecret);
         refuseTheNextKeyWithoutALegacyKey(nextSecret, namedLegacySecret);
+        StringEncryptor encryptor = buildEncryptor(ownSecret, nextSecret, readOnlySecrets, finalAlgorithm, legacySecret);
+        if (namedLegacySecret == null && configuredSecret != null) {
+            // Right for an installation that held this password before the marked format, and wrong for one
+            // that ran on the shipped key and sets its first password now. Nothing here tells them apart.
+            reportLegacyKeyFollowsPasswordOnce();
+        }
+        return encryptor;
+    }
+
+    /**
+     * Builds the encryptor from keys already resolved, by the configuration or by the application.
+     *
+     * @param ownSecret the key that seals new values, or null when none does
+     * @param nextSecret the key about to seal new values, or null
+     * @param readOnlySecrets the keys that only open marked values
+     * @param algorithm the algorithm of the reader of unmarked values
+     * @param legacySecret the key of the reader of unmarked values, the shipped token already resolved
+     */
+    private static StringEncryptor buildEncryptor(String ownSecret, String nextSecret, List<String> readOnlySecrets,
+            String algorithm, String legacySecret) {
         boolean legacyReaderClosed = NO_KEY_TOKEN.equals(legacySecret);
         if (legacyReaderClosed && ownSecret == null) {
             throw new IllegalArgumentException("'" + NO_KEY_TOKEN + "' closes the reader of values carrying no "
@@ -498,20 +479,28 @@ public final class EncryptionUtils {
                     + ENCRYPTOR_PASSWORD_PROP + " names a key of this installation's own. Set it first.");
         }
 
-        StringEncryptor legacyReader = legacyReaderClosed ? null : jasyptEncryptor(legacySecret, finalAlgorithm);
+        StringEncryptor legacyReader = legacyReaderClosed ? null : jasyptEncryptor(legacySecret, algorithm);
         // Without a key of this installation's own, new values stay in the format every version reads, under
         // the key that reads them back.
         String sealingSecret = ownSecret != null ? ownSecret : legacySecret;
         boolean usingDefaultKey = DEFAULT_PASSWORD.equals(sealingSecret);
         KeyRing ring = keyRingOf(ownSecret, nextSecret, readOnlySecrets);
         reportKeys(ownSecret, nextSecret, readOnlySecrets, usingDefaultKey);
-        if (namedLegacySecret == null && configuredSecret != null) {
-            // Right for an installation that held this password before the marked format, and wrong for one
-            // that ran on the shipped key and sets its first password now. Nothing here tells them apart.
-            reportLegacyKeyFollowsPasswordOnce();
-        }
         StringEncryptor writer = ownSecret != null ? ring.primary() : legacyReader;
         return new VersionedStringEncryptor(writer, ring, legacyReader, usingDefaultKey);
+    }
+
+    /**
+     * The tokens name the keys that read what is already stored. Sealing under one, or opening marked values
+     * with one, is not what they mean, so they are refused rather than taken as a passphrase spelt like the
+     * token.
+     */
+    private static void refuseMisplacedTokens(String ownSecret, String nextSecret, List<String> readOnlySecrets) {
+        refuseToken(ownSecret, ENCRYPTOR_PASSWORD_PROP);
+        refuseToken(nextSecret, ENCRYPTOR_NEXT_PROP);
+        for (String readOnlySecret : readOnlySecrets) {
+            refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
+        }
     }
 
     /**
@@ -534,22 +523,17 @@ public final class EncryptionUtils {
     }
 
     /**
-     * @param previousPasswords the read-only keys an application passes, or null to read them from the
-     *            configuration
-     * @return the read-only keys, each checked to be a key
+     * @return the configured next key, or null when none is configured
      */
-    private static List<String> readOnlySecretsOf(List<String> previousPasswords) {
-        List<String> readOnlySecrets = previousPasswords != null ? previousPasswords :
-            ConfigurationUtils.getConfigValues(ENCRYPTOR_PREVIOUS_ENV_PREFIX, ENCRYPTOR_PREVIOUS_PROP_PREFIX);
-        for (String readOnlySecret : readOnlySecrets) {
-            if (readOnlySecret == null || readOnlySecret.trim().isEmpty()) {
-                // The configuration route treats a blank value as unset, so only an argument reaches this.
-                throw new IllegalArgumentException("A read-only key, as " + ENCRYPTOR_PREVIOUS_PROP_PREFIX
-                        + "<n> names one, cannot be null or blank.");
-            }
-            refuseToken(readOnlySecret, ENCRYPTOR_PREVIOUS_PROP_PREFIX + "<n>");
-        }
-        return readOnlySecrets;
+    private static String nextSecretOf() {
+        return ConfigurationUtils.getConfigValue(ENCRYPTOR_NEXT_ENV, ENCRYPTOR_NEXT_PROP, null);
+    }
+
+    /**
+     * @return the configured read-only keys. The configuration treats a blank value as unset, so none is blank.
+     */
+    private static List<String> readOnlySecretsOf() {
+        return ConfigurationUtils.getConfigValues(ENCRYPTOR_PREVIOUS_ENV_PREFIX, ENCRYPTOR_PREVIOUS_PROP_PREFIX);
     }
 
     /**
@@ -719,7 +703,7 @@ public final class EncryptionUtils {
             synchronized (ENCRYPTOR_LOCK) {
                 if (encryptorInstance == null) {
                     // Use configuration-based initialization if not explicitly initialized
-                    encryptorInstance = createEncryptor(null, null, null, null, null);
+                    encryptorInstance = createEncryptor(null, null, null);
                 }
             }
         }
