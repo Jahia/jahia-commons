@@ -672,7 +672,7 @@ public final class EncryptionUtils {
 
     private static void reportPassphraseOnce(KeyNames names) {
         if (PASSPHRASE_REPORTED.compareAndSet(false, true)) {
-            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(() ->
                     capitalized(names.password) + " holds a passphrase, and a passphrase is only as strong as it "
                             + "is hard to guess. Prefer a key of 32 random bytes, set as '"
                             + AesGcmStringEncryptor.RAW_KEY_PREFIX + "' followed by its Base64 form, which "
@@ -686,7 +686,7 @@ public final class EncryptionUtils {
     private static void reportUnusedReadOnlyKeysOnce(KeyNames names) {
         if (UNUSED_READ_ONLY_KEYS_REPORTED.compareAndSet(false, true)) {
             String where = names.configured ? " in " + names.readOnly : "";
-            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(() ->
                     "Read-only keys are set" + where + ", and no value is read under them, because "
                             + names.password + " is not set. Set it to the key that seals new values.");
         }
@@ -709,10 +709,11 @@ public final class EncryptionUtils {
 
     private static void reportEarlierFormatOnce(KeyNames names) {
         if (EARLIER_FORMAT_REPORTED.compareAndSet(false, true)) {
-            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(() ->
                     "New values are written in the format earlier versions read, under the key named by "
-                            + names.legacy + ", because " + names.password + " is not set. On a cluster whose other nodes hold that key, this node cannot "
-                            + "read what they write. Set it here to the same key they hold.");
+                            + names.legacy + ", because " + names.password + " is not set. On a cluster whose other "
+                            + "nodes hold that key, this node cannot read what they write. Set it here to the same key "
+                            + "they hold.");
         }
     }
 
@@ -725,7 +726,7 @@ public final class EncryptionUtils {
             String key = names.configured
                     ? names.password + ", or the " + ENCRYPTOR_PASSWORD_ENV + " environment variable,"
                     : names.password;
-            Logger.getLogger(EncryptionUtils.class.getName()).warning(
+            Logger.getLogger(EncryptionUtils.class.getName()).warning(() ->
                 "New values are sealed with the password shipped with this library. Set " + key
                     + " to a password belonging to this installation.");
         }

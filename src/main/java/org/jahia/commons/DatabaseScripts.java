@@ -221,7 +221,8 @@ public final class DatabaseScripts {
                             || lowerCaseSql.contains("\ndrop\n")) {
                         // ignore
                     } else if (lowerCaseSql.startsWith("alter table") || lowerCaseSql.startsWith("create index")) {
-                        LOGGER.log(Level.WARNING, "Error executing statement, and the script goes on:\n" + sql, e);
+                        LOGGER.log(Level.WARNING, e,
+                                () -> "Error executing statement, and the script goes on:\n" + sql);
                     } else {
                         throw e;
                     }

@@ -5,6 +5,8 @@ import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -530,10 +532,9 @@ public class VersionedEncryptionTest {
             stretched.add(AesGcmStringEncryptor.forSecret("passphrase-" + i));
         }
 
-        assertTrue("The last passphrase stays kept",
-                stretched.get(8) == AesGcmStringEncryptor.forSecret("passphrase-8"));
-        assertTrue("The eldest passphrase is stretched again",
-                stretched.get(0) != AesGcmStringEncryptor.forSecret("passphrase-0"));
+        assertSame("The last passphrase stays kept", stretched.get(8), AesGcmStringEncryptor.forSecret("passphrase-8"));
+        assertNotSame("The eldest passphrase is stretched again", stretched.get(0),
+                AesGcmStringEncryptor.forSecret("passphrase-0"));
         AesGcmStringEncryptor.forgetStretchedPassphrases();
     }
 
@@ -543,8 +544,8 @@ public class VersionedEncryptionTest {
         String keyId = EncryptionUtils.keyIdOf(SITE_PASSWORD);
         AesGcmStringEncryptor first = AesGcmStringEncryptor.forSecret(SITE_PASSWORD);
 
-        assertTrue("A passphrase whose key id was asked is not stretched again",
-                first == AesGcmStringEncryptor.forSecret(SITE_PASSWORD));
+        assertSame("A passphrase whose key id was asked is not stretched again", first,
+                AesGcmStringEncryptor.forSecret(SITE_PASSWORD));
         assertEquals(keyId, first.getKeyId());
         EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
         assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_SITE_PASSWORD));

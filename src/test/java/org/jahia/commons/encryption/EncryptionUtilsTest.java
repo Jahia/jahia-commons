@@ -155,11 +155,10 @@ public class EncryptionUtilsTest {
     @Test
     public void theKeysOfAnApplicationAreRefusedOnceTheEncryptorIsInitialized() {
         EncryptorKeys keys = EncryptorKeys.builder().legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build();
+        EncryptionUtils.initializeEncryptor(keys, true);
         try {
-            EncryptionUtils.initializeEncryptor(keys, true);
-            EncryptionUtils.initializeEncryptor(keys, false);
-            Assert.fail("Expected IllegalStateException when trying to initialize already initialized encryptor");
-        } catch (IllegalStateException e) {
+            IllegalStateException e = Assert.assertThrows(IllegalStateException.class,
+                    () -> EncryptionUtils.initializeEncryptor(keys, false));
             Assert.assertTrue("Exception message should mention already initialized",
                 e.getMessage().contains("already initialized"));
         } finally {

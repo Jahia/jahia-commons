@@ -6,6 +6,7 @@ import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -233,13 +234,10 @@ public class KeyRotationTest {
 
     @Test
     public void theLegacyPasswordIsRequired() {
-        try {
-            EncryptorKeys.builder().password(KEY_1).nextPassword(KEY_2).build();
-            fail("Keys without a legacy password should be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
-                    e.getMessage().startsWith("The legacy password is required"));
-        }
+        EncryptorKeys.Builder keys = EncryptorKeys.builder().password(KEY_1).nextPassword(KEY_2);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, keys::build);
+        assertTrue("The message should name the legacy password, and got: " + e.getMessage(),
+                e.getMessage().startsWith("The legacy password is required"));
     }
 
     @Test
@@ -297,15 +295,12 @@ public class KeyRotationTest {
     @Test
     public void aReadOnlyKeyDerivedFromTheNextPassphraseIsRefusedAsNamedTwice() {
         List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
-        try {
-            initialize(keys(KEY_1).nextPassword(PASSPHRASE).previousPasswords(previous));
-            fail("Expected the configuration to be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should say named twice, and got: " + e.getMessage(),
-                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
-            assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
-                    e.getMessage().contains("promoted"));
-        }
+        EncryptorKeys.Builder refused = keys(KEY_1).nextPassword(PASSPHRASE).previousPasswords(previous);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+        assertTrue("The message should say named twice, and got: " + e.getMessage(),
+                e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
+        assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
+                e.getMessage().contains("promoted"));
     }
 
     @Test
@@ -354,7 +349,7 @@ public class KeyRotationTest {
      */
     @Test
     public void theRefusalsOfTheKeysOfAnApplicationNameNoProperty() {
-        List<EncryptorKeys.Builder> refused = asList(
+        List<EncryptorKeys.Builder> refusedKeys = asList(
                 keys(KEY_1).nextPassword(EncryptionUtils.NO_KEY_TOKEN),
                 keys(EncryptionUtils.SHIPPED_KEY_TOKEN),
                 keys(KEY_1).previousPasswords(singletonList(EncryptionUtils.NO_KEY_TOKEN)),
@@ -362,26 +357,19 @@ public class KeyRotationTest {
                 keys(KEY_1).previousPasswords(singletonList(KEY_1)),
                 keys(KEY_THE_PASSPHRASE_DERIVES).previousPasswords(singletonList(PASSPHRASE)),
                 keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
-        for (EncryptorKeys.Builder keys : refused) {
-            try {
-                initialize(keys);
-                fail("Expected the keys to be refused");
-            } catch (IllegalArgumentException e) {
-                assertFalse("The message should name no property, and got: " + e.getMessage(),
-                        e.getMessage().contains("jahia-commons.encryptor."));
-            }
+        for (EncryptorKeys.Builder refused : refusedKeys) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+            assertFalse("The message should name no property, and got: " + e.getMessage(),
+                    e.getMessage().contains("jahia-commons.encryptor."));
         }
     }
 
     @Test
     public void noneIsRefusedWithTheNextKeyAlone() {
-        try {
-            initialize(keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN));
-            fail("Closing the only reader of the format new values are written in should be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should name the key to set first, and got: " + e.getMessage(),
-                    e.getMessage().contains("until the password names a key"));
-        }
+        EncryptorKeys.Builder refused = keys(null).nextPassword(KEY_1).legacyPassword(EncryptionUtils.NO_KEY_TOKEN);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+        assertTrue("The message should name the key to set first, and got: " + e.getMessage(),
+                e.getMessage().contains("until the password names a key"));
     }
 
     /**
@@ -581,15 +569,12 @@ public class KeyRotationTest {
     @Test
     public void aReadOnlyKeyDerivedFromThePrimaryPassphraseIsRefusedAsNamedTwice() {
         List<String> previous = singletonList(KEY_THE_PASSPHRASE_DERIVES);
-        try {
-            initialize(keys(PASSPHRASE).previousPasswords(previous));
-            fail("Expected the configuration to be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should say named twice, and got: " + e.getMessage(),
-                    e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
-            assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
-                    e.getMessage().contains("promoted"));
-        }
+        EncryptorKeys.Builder refused = keys(PASSPHRASE).previousPasswords(previous);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+        assertTrue("The message should say named twice, and got: " + e.getMessage(),
+                e.getMessage().contains(KEY_ID_OF_THE_PASSPHRASE + " is named twice"));
+        assertFalse("The message should not name a promotion, and got: " + e.getMessage(),
+                e.getMessage().contains("promoted"));
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -603,26 +588,20 @@ public class KeyRotationTest {
 
     private static void refusedAtInitializationNaming(String password, List<String> previous,
             String expected) {
-        try {
-            initialize(keys(password).previousPasswords(previous));
-            fail("Expected the configuration to be refused");
-        } catch (IllegalArgumentException e) {
-            if (expected != null) {
-                assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
-                        e.getMessage().contains(expected));
-            }
+        EncryptorKeys.Builder refused = keys(password).previousPasswords(previous);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+        if (expected != null) {
+            assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
+                    e.getMessage().contains(expected));
         }
     }
 
     private static void refusedWithNextKeyNaming(String password, String next, List<String> previous,
             String expected) {
-        try {
-            initialize(keys(password).nextPassword(next).previousPasswords(previous));
-            fail("Expected the configuration to be refused");
-        } catch (IllegalArgumentException e) {
-            assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
-                    e.getMessage().contains(expected));
-        }
+        EncryptorKeys.Builder refused = keys(password).nextPassword(next).previousPasswords(previous);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> initialize(refused));
+        assertTrue("The message should name " + expected + ", and got: " + e.getMessage(),
+                e.getMessage().contains(expected));
     }
 
     /** The keys every value here is read under, with the shipped password reading the unmarked ones. */
