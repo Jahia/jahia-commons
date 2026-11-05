@@ -88,7 +88,7 @@ public final class EncryptorKeys {
          * @throws IllegalArgumentException if the key is blank
          */
         public Builder nextPassword(String nextPassword) {
-            this.nextPassword = refuseBlank(nextPassword, "The next password");
+            this.nextPassword = refuseBlank(nextPassword, "The next key");
             return this;
         }
 
@@ -106,9 +106,9 @@ public final class EncryptorKeys {
             List<String> keys = new ArrayList<>(previousPasswords.size());
             for (String previousPassword : previousPasswords) {
                 if (previousPassword == null) {
-                    throw new IllegalArgumentException("A previous password cannot be null.");
+                    throw new IllegalArgumentException("A read-only key cannot be null.");
                 }
-                keys.add(refuseBlank(previousPassword, "A previous password"));
+                keys.add(refuseBlank(previousPassword, "A read-only key"));
             }
             this.previousPasswords = Collections.unmodifiableList(keys);
             return this;

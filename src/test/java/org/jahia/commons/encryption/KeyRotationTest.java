@@ -276,14 +276,14 @@ public class KeyRotationTest {
         for (String blank : asList("", "  ")) {
             refusedByTheBuilderNaming(() -> EncryptorKeys.builder().password(blank), "The password cannot be blank");
             refusedByTheBuilderNaming(() -> EncryptorKeys.builder().nextPassword(blank),
-                    "The next password cannot be blank");
+                    "The next key cannot be blank");
             refusedByTheBuilderNaming(() -> EncryptorKeys.builder().legacyPassword(blank),
                     "The legacy password cannot be blank");
             refusedByTheBuilderNaming(() -> EncryptorKeys.builder().previousPasswords(singletonList(blank)),
-                    "A previous password cannot be blank");
+                    "A read-only key cannot be blank");
         }
         refusedByTheBuilderNaming(() -> EncryptorKeys.builder().previousPasswords(singletonList(null)),
-                "A previous password cannot be null");
+                "A read-only key cannot be null");
     }
 
     @Test

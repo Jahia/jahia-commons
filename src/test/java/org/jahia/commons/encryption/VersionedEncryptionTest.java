@@ -575,6 +575,8 @@ public class VersionedEncryptionTest {
     public void aPassphraseIsStretchedOnceWhileItIsKept() {
         AesGcmStringEncryptor.forgetStretchedPassphrases();
         String keyId = EncryptionUtils.keyIdOf(SITE_PASSWORD);
+        assertTrue("Asking for the key id keeps the passphrase stretched",
+                AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
         AesGcmStringEncryptor first = AesGcmStringEncryptor.forSecret(SITE_PASSWORD);
 
         assertSame("A passphrase whose key id was asked is not stretched again", first,
