@@ -5,6 +5,8 @@ import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -240,10 +242,9 @@ public class VersionedEncryptionTest {
      */
     @Test
     public void writingInTheEarlierFormatBesideTheNextKeyIsNotReported() {
-        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        EncryptorKeys keys = EncryptorKeys.builder().nextPassword(KEY_A).legacyPassword(SITE_PASSWORD).build();
 
-        List<String> reported =
-                reportsOf(() -> EncryptionUtils.initializeEncryptor(null, KEY_A, null, null, null, true));
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
 
         assertEquals(emptyList(), reported);
     }
@@ -382,19 +383,49 @@ public class VersionedEncryptionTest {
                 reportsOf(() -> EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true));
 
         assertEquals(1, reported.size());
+        assertTrue("The report should start with the property, as it is spelt, and got: " + reported.get(0),
+                reported.get(0).startsWith(PASSWORD_PROP + " holds a passphrase"));
         assertTrue("The report should name the raw key prefix, and got: " + reported.get(0),
                 reported.get(0).contains("base64:"));
     }
 
     @Test
-    public void readOnlyKeysWithoutAKeyThatSealsAreReported() {
-        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+    public void aPassphraseOfAnApplicationIsReportedByItsRole() {
+        EncryptorKeys keys = EncryptorKeys.builder().password(SITE_PASSWORD)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build();
 
-        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null,
-                singletonList(KEY_A), null, null, true));
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
+
+        assertEquals(1, reported.size());
+        assertTrue("The report should start with the role of the key, and got: " + reported.get(0),
+                reported.get(0).startsWith("The password holds a passphrase"));
+    }
+
+    @Test
+    public void readOnlyKeysWithoutAKeyThatSealsAreReported() {
+        EncryptorKeys keys =
+                EncryptorKeys.builder().previousPasswords(singletonList(KEY_A)).legacyPassword(SITE_PASSWORD).build();
+
+        List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(keys, true));
 
         assertTrue("The report should name the read-only keys, and got: " + reported,
-                reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.")));
+                reported.stream().anyMatch(line -> line.startsWith("Read-only keys are set, and")));
+        assertTrue("The reports of the keys of an application should name no property, and got: " + reported,
+                reported.stream().noneMatch(line -> line.contains("jahia-commons.encryptor.")));
+    }
+
+    @Test
+    public void readOnlyKeysFromTheConfigurationWithoutAKeyThatSealsAreReportedByTheirProperty() {
+        System.setProperty(LEGACY_PASSWORD_PROP, SITE_PASSWORD);
+        System.setProperty("jahia-commons.encryptor.previous.1", KEY_A);
+        try {
+            List<String> reported = reportsOf(() -> EncryptionUtils.initializeEncryptor(null, null, null, true));
+
+            assertTrue("The report should name the property of the read-only keys, and got: " + reported,
+                    reported.stream().anyMatch(line -> line.contains("jahia-commons.encryptor.previous.<n>")));
+        } finally {
+            System.clearProperty("jahia-commons.encryptor.previous.1");
+        }
     }
 
     @Test
@@ -500,7 +531,59 @@ public class VersionedEncryptionTest {
         } catch (IllegalArgumentException e) {
             assertTrue("The message should name the prefix, and got: " + e.getMessage(),
                     e.getMessage().contains("base64:"));
+            assertFalse("The message should name no character of the key, and got: " + e.getMessage(),
+                    e.getMessage().contains("character"));
+            assertEquals("The decoder's error names a character of the key", null, e.getCause());
         }
+    }
+
+    /** The JVM keeps 8 stretched passphrases, and stretches the eldest again once a ninth is asked for. */
+    @Test
+    public void theStretchedPassphrasesKeptAreBounded() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        List<AesGcmStringEncryptor> stretched = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            stretched.add(AesGcmStringEncryptor.forSecret("passphrase-" + i));
+        }
+
+        assertSame("The last passphrase stays kept", stretched.get(8), AesGcmStringEncryptor.forSecret("passphrase-8"));
+        assertNotSame("The eldest passphrase is stretched again", stretched.get(0),
+                AesGcmStringEncryptor.forSecret("passphrase-0"));
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+    }
+
+    @Test
+    public void aRingBuiltWithoutAPassphraseForgetsIt() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        EncryptionUtils.initializeEncryptor(EncryptorKeys.builder().password(SITE_PASSWORD)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build(), true);
+        EncryptionUtils.keyIdOf("another-passphrase");
+        assertTrue("The passphrase of the ring stays stretched", AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
+        assertTrue("A passphrase whose key id was asked stays stretched until the next ring",
+                AesGcmStringEncryptor.isStretched("another-passphrase"));
+
+        EncryptionUtils.initializeEncryptor(EncryptorKeys.builder().password(KEY_A)
+                .legacyPassword(EncryptionUtils.SHIPPED_KEY_TOKEN).build(), true);
+
+        assertFalse("A passphrase the new ring does not hold is forgotten",
+                AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
+        assertFalse("A passphrase the new ring does not hold is forgotten",
+                AesGcmStringEncryptor.isStretched("another-passphrase"));
+    }
+
+    @Test
+    public void aPassphraseIsStretchedOnceWhileItIsKept() {
+        AesGcmStringEncryptor.forgetStretchedPassphrases();
+        String keyId = EncryptionUtils.keyIdOf(SITE_PASSWORD);
+        assertTrue("Asking for the key id keeps the passphrase stretched",
+                AesGcmStringEncryptor.isStretched(SITE_PASSWORD));
+        AesGcmStringEncryptor first = AesGcmStringEncryptor.forSecret(SITE_PASSWORD);
+
+        assertSame("A passphrase whose key id was asked is not stretched again", first,
+                AesGcmStringEncryptor.forSecret(SITE_PASSWORD));
+        assertEquals(keyId, first.getKeyId());
+        EncryptionUtils.initializeEncryptor(SITE_PASSWORD, null, null, true);
+        assertEquals(SITE_VALUE, EncryptionUtils.passwordBaseDecrypt(MARKED_ENVELOPE_UNDER_SITE_PASSWORD));
     }
 
     @Test

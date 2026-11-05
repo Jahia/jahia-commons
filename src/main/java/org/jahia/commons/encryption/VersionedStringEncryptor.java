@@ -17,6 +17,7 @@ final class VersionedStringEncryptor implements StringEncryptor {
     private final KeyRing ring;
     private final StringEncryptor legacyReader;
     private final boolean usingDefaultKey;
+    private final EncryptionUtils.KeyNames names;
 
     /**
      * @param writer the encryptor every new value goes through
@@ -25,9 +26,11 @@ final class VersionedStringEncryptor implements StringEncryptor {
      *            legacy reader
      * @param legacyReader reads a value carrying no marker, or null when the installation closed that reader
      * @param usingDefaultKey whether the writer holds the key shipped with this library
+     * @param names how a refusal names each key
      */
     VersionedStringEncryptor(StringEncryptor writer, KeyRing ring, StringEncryptor legacyReader,
-            boolean usingDefaultKey) {
+            boolean usingDefaultKey, EncryptionUtils.KeyNames names) {
+        this.names = names;
         this.writer = writer;
         this.ring = ring;
         this.legacyReader = legacyReader;
@@ -57,8 +60,8 @@ final class VersionedStringEncryptor implements StringEncryptor {
             // it seals its own in the earlier format. The message is what tells that apart from a wrong key.
             throw new EncryptionOperationNotPossibleException("The value carries the "
                     + AesGcmStringEncryptor.MARKER + " marker, and this installation has no key for that "
-                    + "format. Set jahia-commons.encryptor.next to the key the value was sealed with, or "
-                    + "jahia-commons.encryptor.password once every node holds it.");
+                    + "format. Set " + names.next + " to the key the value was sealed with, or "
+                    + names.password + " once every node holds it.");
         }
         String keyId = AesGcmStringEncryptor.keyIdIn(encryptedMessage);
         if (keyId == null) {
@@ -68,10 +71,12 @@ final class VersionedStringEncryptor implements StringEncryptor {
         }
         AesGcmStringEncryptor key = ring.forKeyId(keyId);
         if (key == null) {
+            String where = names.configured
+                    ? "Add that key to " + names.readOnly + ", or to " + names.next
+                    : "Add that key as " + names.readOnly + ", or as " + names.next;
             throw new EncryptionOperationNotPossibleException("The value was sealed under the key with id "
-                    + keyId + ", and this installation holds no such key. Add that key to "
-                    + "jahia-commons.encryptor.previous.<n>, or to jahia-commons.encryptor.next when it is about "
-                    + "to seal new values, to read the value.");
+                    + keyId + ", and this installation holds no such key. " + where + " when it is about to seal "
+                    + "new values, to read the value.");
         }
         return key.decrypt(encryptedMessage);
     }
