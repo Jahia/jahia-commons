@@ -51,6 +51,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Utility class for parsing and executing SQL scripts.
@@ -58,6 +60,8 @@ import java.util.List;
  * @author Sergiy Shyrkov
  */
 public final class DatabaseScripts {
+
+    private static final Logger LOGGER = Logger.getLogger(DatabaseScripts.class.getName());
 
     /**
      * Initializes an instance of this class.
@@ -217,9 +221,8 @@ public final class DatabaseScripts {
                             || lowerCaseSql.contains("\ndrop\n")) {
                         // ignore
                     } else if (lowerCaseSql.startsWith("alter table") || lowerCaseSql.startsWith("create index")) {
-                        System.err.println("Error executing statement:\n" + sql);
-                        System.err.println(e.getMessage());
-                        e.printStackTrace();
+                        LOGGER.log(Level.WARNING, e,
+                                () -> "Error executing statement, and the script goes on:\n" + sql);
                     } else {
                         throw e;
                     }

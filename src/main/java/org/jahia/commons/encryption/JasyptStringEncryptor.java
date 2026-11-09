@@ -22,15 +22,19 @@ import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
  */
 final class JasyptStringEncryptor implements StringEncryptor {
 
-    // Names neither the value nor the key, because the message reaches the logs of the caller.
-    private static final String WRONG_KEY = "The value carries no format marker, and the key that reads such "
-            + "values could not open it. Set jahia-commons.encryptor.legacy.password to the password that wrote "
-            + "it, or to '" + EncryptionUtils.SHIPPED_KEY_TOKEN + "' when none was set.";
-
     private final StandardPBEStringEncryptor writer = new StandardPBEStringEncryptor();
     private final StandardPBEByteEncryptor reader = new StandardPBEByteEncryptor();
+    // Names neither the value nor the key, because the message reaches the logs of the caller.
+    private final String wrongKey;
 
     JasyptStringEncryptor(String password, String algorithm) {
+        this(password, algorithm, EncryptionUtils.KeyNames.CONFIGURATION);
+    }
+
+    JasyptStringEncryptor(String password, String algorithm, EncryptionUtils.KeyNames names) {
+        wrongKey = "The value carries no format marker, and the key that reads such values could not open it. "
+                + "Set " + names.legacy + " to the password that wrote it, or to '"
+                + EncryptionUtils.SHIPPED_KEY_TOKEN + "' when none was set.";
         writer.setPassword(password);
         writer.setAlgorithm(algorithm);
         reader.setPassword(password);
@@ -64,13 +68,13 @@ final class JasyptStringEncryptor implements StringEncryptor {
             // unknown legacy algorithm, surfaces here.
             throw e;
         } catch (RuntimeException e) {
-            throw refused(WRONG_KEY, e);
+            throw refused(wrongKey, e);
         }
         try {
             return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(plain)).toString();
         } catch (CharacterCodingException e) {
-            throw refused(WRONG_KEY, e);
+            throw refused(wrongKey, e);
         }
     }
 

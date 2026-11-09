@@ -8,6 +8,11 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -68,6 +73,25 @@ final class AesGcmStringEncryptor implements StringEncryptor {
 
     private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
 
+    /** Bounds the passphrases kept stretched: a ring holds a few keys, and a test builds many rings. */
+    private static final int STRETCHED_PASSPHRASES_KEPT = 8;
+
+    /**
+     * The encryptor of each of the last passphrases stretched in this JVM, so that {@link #keyIdOf(String)}
+     * followed by {@link #forSecret(String)}, or a rebuild of the ring, stretches it once. Each entry is keyed
+     * by the salt of the passphrase, not by the passphrase, and holds what a ring holding that key holds: the
+     * derived subkey and the key id.
+     */
+    private static final Map<String, AesGcmStringEncryptor> STRETCHED =
+            new LinkedHashMap<String, AesGcmStringEncryptor>(16, 0.75f, true) {
+                private static final long serialVersionUID = 1L;
+
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, AesGcmStringEncryptor> eldest) {
+                    return size() > STRETCHED_PASSPHRASES_KEPT;
+                }
+            };
+
     private final SecretKey key;
     private final String keyId;
     private final String prefix;
@@ -80,8 +104,9 @@ final class AesGcmStringEncryptor implements StringEncryptor {
     }
 
     /**
-     * Builds an encryptor for the given secret. A passphrase is stretched here, once, and the derived key is
-     * held for the life of the encryptor, so no derivation runs per value.
+     * Builds an encryptor for the given secret. Up to {@value #STRETCHED_PASSPHRASES_KEPT} passphrases stay
+     * stretched, and a passphrase beyond them is stretched again. The derived key is held for the life of the
+     * encryptor, so no derivation runs per value.
      *
      * @param secret raw key material when it carries {@link #RAW_KEY_PREFIX}, a passphrase otherwise
      * @return an encryptor holding the key that secret names
@@ -89,7 +114,61 @@ final class AesGcmStringEncryptor implements StringEncryptor {
      *             {@link #KEY_LENGTH_BYTES} bytes
      */
     static AesGcmStringEncryptor forSecret(String secret) {
-        return new AesGcmStringEncryptor(keyMaterialOf(secret));
+        refuseBlank(secret);
+        if (secret.startsWith(RAW_KEY_PREFIX)) {
+            return new AesGcmStringEncryptor(rawKeyMaterialOf(secret));
+        }
+        String cacheKey = cacheKeyOf(secret);
+        synchronized (STRETCHED) {
+            AesGcmStringEncryptor stretched = STRETCHED.get(cacheKey);
+            if (stretched == null) {
+                stretched = new AesGcmStringEncryptor(derive(secret));
+                STRETCHED.put(cacheKey, stretched);
+            }
+            return stretched;
+        }
+    }
+
+    /**
+     * Forgets every stretched passphrase but the given ones, so that a ring built without a key no longer
+     * holds it in this JVM.
+     *
+     * @param secrets the secrets of the ring just built; raw key material and null are ignored
+     */
+    static void keepStretchedOnly(Collection<String> secrets) {
+        Set<String> kept = new HashSet<>();
+        for (String secret : secrets) {
+            if (secret != null && !secret.trim().isEmpty() && !secret.startsWith(RAW_KEY_PREFIX)) {
+                kept.add(cacheKeyOf(secret));
+            }
+        }
+        synchronized (STRETCHED) {
+            STRETCHED.keySet().retainAll(kept);
+        }
+    }
+
+    /**
+     * @param secret a passphrase
+     * @return whether the passphrase is stretched and kept, so that a test can observe what is forgotten
+     */
+    static boolean isStretched(String secret) {
+        String cacheKey = cacheKeyOf(secret);
+        synchronized (STRETCHED) {
+            return STRETCHED.containsKey(cacheKey);
+        }
+    }
+
+    private static String cacheKeyOf(String passphrase) {
+        return hex(saltFor(passphrase));
+    }
+
+    /**
+     * Forgets every passphrase stretched so far, so that a test can observe a stretch.
+     */
+    static void forgetStretchedPassphrases() {
+        synchronized (STRETCHED) {
+            STRETCHED.clear();
+        }
     }
 
     /**
@@ -98,7 +177,7 @@ final class AesGcmStringEncryptor implements StringEncryptor {
      * @throws IllegalArgumentException on the same secrets {@link #forSecret(String)} refuses
      */
     static String keyIdOf(String secret) {
-        return keyIdOfMaterial(keyMaterialOf(secret));
+        return forSecret(secret).getKeyId();
     }
 
     /**
@@ -188,11 +267,14 @@ final class AesGcmStringEncryptor implements StringEncryptor {
     }
 
     private static String keyIdOfMaterial(byte[] keyMaterial) {
-        byte[] id = Arrays.copyOf(subkey(keyMaterial, KEY_ID_LABEL), KEY_ID_LENGTH_BYTES);
-        char[] hex = new char[id.length * 2];
-        for (int i = 0; i < id.length; i++) {
-            hex[i * 2] = HEX_DIGITS[(id[i] >> 4) & 0xf];
-            hex[i * 2 + 1] = HEX_DIGITS[id[i] & 0xf];
+        return hex(Arrays.copyOf(subkey(keyMaterial, KEY_ID_LABEL), KEY_ID_LENGTH_BYTES));
+    }
+
+    private static String hex(byte[] bytes) {
+        char[] hex = new char[bytes.length * 2];
+        for (int i = 0; i < bytes.length; i++) {
+            hex[i * 2] = HEX_DIGITS[(bytes[i] >> 4) & 0xf];
+            hex[i * 2 + 1] = HEX_DIGITS[bytes[i] & 0xf];
         }
         return new String(hex);
     }
@@ -214,7 +296,7 @@ final class AesGcmStringEncryptor implements StringEncryptor {
         }
     }
 
-    private static byte[] keyMaterialOf(String secret) {
+    private static void refuseBlank(String secret) {
         if (secret.trim().isEmpty()) {
             // Only an application passing the secret as an argument reaches this: a configured one is read
             // through ConfigurationUtils, which treats a blank value as unset and falls back instead.
@@ -222,15 +304,17 @@ final class AesGcmStringEncryptor implements StringEncryptor {
                     + "jahia-commons.encryptor.password to a key of this installation's own, or leave it "
                     + "unset to keep new values in the format earlier versions read.");
         }
-        if (!secret.startsWith(RAW_KEY_PREFIX)) {
-            return derive(secret);
-        }
+    }
+
+    private static byte[] rawKeyMaterialOf(String secret) {
         byte[] raw;
         try {
             raw = Base64.getDecoder().decode(secret.substring(RAW_KEY_PREFIX.length()));
         } catch (IllegalArgumentException e) {
+            // The decoder's message names the character it refused, which is a character of the key, so
+            // neither that message nor the exception that carries it travels with the refusal.
             throw new IllegalArgumentException("A secret declared with the '" + RAW_KEY_PREFIX
-                    + "' prefix must be Base64.", e);
+                    + "' prefix must be Base64.");
         }
         if (raw.length != KEY_LENGTH_BYTES) {
             throw new IllegalArgumentException("A secret declared with the '" + RAW_KEY_PREFIX
